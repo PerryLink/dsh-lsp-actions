@@ -3,3 +3,4 @@ lib/
 *.tsbuildinfo
 coverage/
 .tgz
+upstream/coverage-out.txt
