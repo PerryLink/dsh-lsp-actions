@@ -36,8 +36,16 @@
     "formatting",
     "completion"
   ],
-  "author": "",
+  "author": "PerryLink",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PerryLink/dsh-lsp-actions"
+  },
+  "bugs": {
+    "url": "https://github.com/PerryLink/dsh-lsp-actions/issues"
+  },
+  "homepage": "https://github.com/PerryLink/dsh-lsp-actions#readme",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
