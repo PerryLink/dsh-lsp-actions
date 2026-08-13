@@ -1,0 +1,2403 @@
+From 7f106515ab30bac54e84392920583486c077ef6c Mon Sep 17 00:00:00 2001
+From: DSH Agent <agent@deepseek-harness.local>
+Date: Fri, 14 Aug 2026 04:54:31 +0800
+Subject: [PATCH] feat(lsp): add diagnostics/formatDocument/completion to the
+ ctx.lsp seam
+
+---
+ .../2026-08-14-lsp-action-operations.md       |  47 +++++
+ docs/capability-seams.md                      |   2 +-
+ docs/subsystems/README.md                     |   2 +-
+ docs/subsystems/lsp.i18n.yaml                 |   4 +-
+ docs/subsystems/lsp.md                        | 128 +++++++++---
+ docs/subsystems/lsp.zh.md                     | 128 +++++++++---
+ .../extensions/tool-cordis/src/api-catalog.ts |  44 +++-
+ packages/lsp/README.i18n.yaml                 |   4 +-
+ packages/lsp/README.md                        |   2 +-
+ packages/lsp/README.zh.md                     |   2 +-
+ packages/lsp/lsp-stdio/README.i18n.yaml       |   4 +-
+ packages/lsp/lsp-stdio/README.md              |   6 +-
+ packages/lsp/lsp-stdio/README.zh.md           |   6 +-
+ packages/lsp/lsp-stdio/src/connection.ts      |  17 +-
+ packages/lsp/lsp-stdio/src/index.ts           |  14 ++
+ packages/lsp/lsp-stdio/src/instance.ts        | 191 ++++++++++++++---
+ packages/lsp/lsp-stdio/src/protocol.ts        |  38 +++-
+ packages/lsp/lsp-stdio/src/translate.ts       | 193 +++++++++++++++---
+ .../lsp/lsp-stdio/tests/connection.spec.ts    |  14 ++
+ .../lsp/lsp-stdio/tests/fixture-server.ts     |  30 +++
+ packages/lsp/lsp-stdio/tests/instance.spec.ts | 151 +++++++++++++-
+ packages/lsp/lsp-stdio/tests/provider.spec.ts |  16 +-
+ .../lsp/lsp-stdio/tests/translate.spec.ts     | 173 +++++++++++++++-
+ packages/lsp/lsp/README.i18n.yaml             |   4 +-
+ packages/lsp/lsp/README.md                    |   8 +-
+ packages/lsp/lsp/README.zh.md                 |   8 +-
+ packages/lsp/lsp/src/index.ts                 |  12 +-
+ packages/lsp/lsp/src/types.ts                 | 100 ++++++---
+ packages/lsp/tool-lsp/README.i18n.yaml        |   4 +-
+ packages/lsp/tool-lsp/README.md               |   2 +-
+ packages/lsp/tool-lsp/README.zh.md            |   2 +-
+ packages/lsp/tool-lsp/src/index.ts            |   4 +-
+ scripts/gen-doc-graphs.ts                     |   2 +-
+ scripts/type-equiv.manifest.json              |  40 ++++
+ 34 files changed, 1201 insertions(+), 201 deletions(-)
+ create mode 100644 .agents/notes/implemented/architecture/2026-08-14-lsp-action-operations.md
+
+diff --git a/.agents/notes/implemented/architecture/2026-08-14-lsp-action-operations.md b/.agents/notes/implemented/architecture/2026-08-14-lsp-action-operations.md
+new file mode 100644
+index 0000000..3bf53eb
+--- /dev/null
++++ b/.agents/notes/implemented/architecture/2026-08-14-lsp-action-operations.md
+@@ -0,0 +1,47 @@
++# Agent Note: LSP action operations join the closed ctx.lsp union
++
++Status: implemented
++
++## Problem
++
++The LSP seam exposes four read-only navigation operations (`goToDefinition`, `findReferences`, `goToImplementation`, `hover`). Diagnostics, formatting, and completion are language-server capabilities an agent also needs, but each has a different request and result shape: diagnostics is file-scoped with no cursor, formatting takes an optional range and returns edits, and completion returns a list. Without them in the seam, a consumer would need a parallel service or escape hatch, fragmenting the closed vocabulary and re-opening the arbitrary-JSON-RPC path the seam exists to prevent.
++
++## Decision
++
++Extend the closed `LspOperation` union from four to seven operations — adding `diagnostics`, `formatDocument`, and `completion` — so the compile-enforced ripple reaches every new operation. Split `LspQueryRequest` into a closed union of three request shapes: position-based (`LspPositionRequest`), position-less (`LspDiagnosticsRequest`), and optional-range (`LspFormatRequest`). Extend `LspQueryResult` from two kinds to five: `locations`, `hover`, `diagnostics`, `edits`, and `completion`.
++
++## Why actions join the closed union
++
++The closed union is the seam's negative guarantee: no arbitrary JSON-RPC method reaches `ctx.lsp`, and adding an operation is a compile-enforced change across the Service Definition, every provider, and every consumer. Diagnostics, formatting, and completion belong inside that union rather than a separate escape hatch, so a provider translates them into the normalized request and result contracts and every consumer `switch` handles them. A future eighth operation breaks every exhaustive switch until handled — the same guarantee the four navigation operations already enforce.
++
++## Why the request became a discriminated union
++
++The four navigation operations share one request shape (`operation` + `filePath` + `position` + `workspaceRoot`). The three new operations do not: `diagnostics` has no cursor, and `formatDocument` carries an optional range instead of a required position. One flat request with optional fields would reintroduce hidden defaulting and let a caller send fields an operation ignores. The discriminated union makes each shape exact: `operation` narrows `LspQueryRequest` to the fields that operation actually carries, so `request.position` is reachable only for position-based operations and `request.range` only for `formatDocument`.
++
++## Why diagnostics has a push fallback path
++
++Pull diagnostics (`textDocument/diagnostic`) is optional in the protocol; many servers only push `textDocument/publishDiagnostics` after a document opens. A server that advertises `diagnosticProvider` is queried by pull; a server without it is queried by the transient-open push path: open the document, wait up to a bounded settle window for a `publishDiagnostics` for that URI (the latest batch replaces earlier batches for the same URI), then close. The settle window exists because push delivery has no completion signal — the client cannot know a silent server has nothing to report, so it bounds the wait.
++
++Pushed URIs are matched by normalization, not raw string equality: the client percent-decodes the pathname and case-folds it on Windows, because a server may re-spell the opened document URI (typescript-language-server percent-encodes the drive colon and lowercases it, turning `file:///C:/…` into `file:///c%3A/…`). The default `diagnosticsSettleMs` of `2000` bounds the wait but can miss a cold-start push: typescript-language-server pushes diagnostics roughly `2.4s` after `didOpen`, after a `workspace/configuration` round trip, so a warm server pushes fast while a cold server may land just past the default window. Deployments whose servers start slowly can raise `diagnosticsSettleMs`.
++
++## Why formatting returns edits and the host never applies them
++
++`formatDocument` normalizes to `edits` (`LspTextEdit[]`), not to a mutated document. The stdio host transiently opens the document for the query and applies nothing: it rejects `workspace/applyEdit` and never writes. Applying an edit is a mutation with preview, permission, and write-policy obligations the query seam does not own. A consumer applies the returned edits through `ctx.fs` write-intent, so the query itself stays read-only for the host.
++
++## Keyless-snapshot judgment
++
++No keyless snapshot is added. The in-repo model-visible surface is unchanged: `tool-lsp` still exposes the same four navigation operations and the same `locations`/`hover` output schema, and its switches throw on the three new result kinds it never requests. The new seam and provider additions surface only through the external `dsh-lsp-actions` consumer plugin, which owns its own model-facing schema and snapshots.
++
++## Alternatives considered
++
++**Add a parallel diagnostics/format/completion service or escape hatch.** Rejected: it would fragment the closed vocabulary and re-open the arbitrary-JSON-RPC path the seam exists to close.
++
++**Keep one flat request with optional fields.** Rejected: optional fields reintroduce hidden defaulting and let a caller send fields an operation ignores; the discriminated union makes each operation's fields exact.
++
++**Make diagnostics pull-only.** Rejected: push-only servers are common, and the transient-open sequence already exists, so a bounded push fallback serves them without new infrastructure.
++
++**Apply formatting edits inside the provider.** Rejected: mutation needs preview, permission, and write-policy integration the query seam does not own; returning edits keeps the query read-only and leaves application to the consumer through `ctx.fs`.
++
++## Consequences
++
++The closed union now spans seven operations, so a new provider implements — or rejects with `LSP_UNSUPPORTED_OPERATION` — all of them, and the compile-enforced switches keep that honest. `formatDocument` returns edits the host never applies, so a consumer that wants formatted text writes it back through `ctx.fs`. Push diagnostics are bounded by `diagnosticsSettleMs`, so a silent server resolves to an empty list after the window rather than hanging. The model-facing `lsp` tool is unchanged, so the seam additions reach no model request until a consumer plugin exposes them.
+diff --git a/docs/capability-seams.md b/docs/capability-seams.md
+index a990a9d..01f27ad 100644
+--- a/docs/capability-seams.md
++++ b/docs/capability-seams.md
+@@ -463,7 +463,7 @@ flowchart LR
+ | `ctx.webServer` | `core` | `webserver` | - | `connection`, `modules`, `hmr` | - | Plain node:http carrier: named-route registry, index transform taps, and the static dist fallback; web-transport plugins register their own routes. |
+ | `ctx.clientModules` | `core` | `modules` | - | `hmr` | - | Composes the __DSH_BOOT__ entry graph from an incremental dsh.client scan, serves plugin bundles, and notifies rebuilt/graph-changed subscribers. |
+ | `ctx.workflowEngine` | `seam` | [`workflow`](../packages/workflow/workflow) | [`workflow-worker-thread`](../packages/workflow/workflow-worker-thread) | [`tool-workflow`](../packages/workflow/tool-workflow), [`tool-ralph`](../packages/workflow/tool-ralph) | - | One engine per context, as in bash, with no named-provider registry; the general workflow and fixed Ralph consumers start runs whose agent() calls fan out through ctx.subagents. |
+-| `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | `lsp-local` | [`tool-lsp`](../packages/lsp/tool-lsp) | - | Provider registration and selection plus normalized query execution over exactly four operations; the seam offers no protocol escape hatch, so a backend translates into the normalized request and result. |
++| `ctx.lsp` | `seam` | [`lsp`](../packages/lsp/lsp) | `lsp-local` | [`tool-lsp`](../packages/lsp/tool-lsp) | - | Provider registration and selection plus normalized query execution over exactly seven operations; the seam offers no protocol escape hatch, so a backend translates into the normalized request and result. |
+ | `ctx.apiProxy` | `core` | `apiproxy` | - | `connection` | - | The transport-agnostic host gateway face: it dispatches browser API calls, and each open host stream subscribes to the events it forwards rather than being pushed to through a broadcast verb. |
+ | `ctx.dynamicCordisRunner` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Owns the in-memory definition registry, the vm sandbox for host halves, and the request-run round trip; browser pages reach the same service over the wire through its remote namespace. |
+ | `ctx.cordisInspect` | `core` | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | - | [`tool-cordis`](../packages/extensions/tool-cordis) | - | Registers host inspect providers, mirrors the client provider manifest, and routes client queries through the dynamic Cordis transport. |
+diff --git a/docs/subsystems/README.md b/docs/subsystems/README.md
+index a1c2262..8d00a9f 100644
+--- a/docs/subsystems/README.md
++++ b/docs/subsystems/README.md
+@@ -34,7 +34,7 @@ One page per subsystem of the DeepSeek Harness: what it is, the data structures
+ | [code-runtime.md](code-runtime.md) | the code-execution seam: `CodeRunRequest`/`Result`, binding namespaces, captured logs, the `CodeRunFailure` taxonomy |
+ | [extensions.md](extensions.md) | versioned dynamic Cordis Plugins and Packages, Host/Client activation, approval, runtime inspection, and lifecycle teardown |
+ | [filesystem.md](filesystem.md) | the filesystem seam: `FsTarget`, read/write/edit outcomes, observed-file state, `FsErrorCode` |
+-| [lsp.md](lsp.md) | the LSP navigation seam: `LspQueryRequest`/`Result`, `LspProvider`/`Service`, four operations, `LspError` |
++| [lsp.md](lsp.md) | the LSP capability seam: `LspQueryRequest`/`Result`, `LspProvider`/`Service`, seven operations, `LspError` |
+ | [skills.md](skills.md) | the skill service: discovery priority, `SkillSummary`/`SkillDefinition`, session-prefix catalog, model-facing `skill` loading |
+ | [compaction.md](compaction.md) | the compaction seam: the `compaction/*` session events, `CompactionResult`, the `CompactionEngine` interface |
+ | [subagent.md](subagent.md) | the subagent seam: the named-provider registry, `SubagentStartRequest`/`Result`/`Run`, the start-time-vs-runtime capability split |
+diff --git a/docs/subsystems/lsp.i18n.yaml b/docs/subsystems/lsp.i18n.yaml
+index 4de29d6..9d077bb 100644
+--- a/docs/subsystems/lsp.i18n.yaml
++++ b/docs/subsystems/lsp.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write docs/subsystems/lsp.md
+-lsp.md: 18ed0e178c73702534a9964557a3dabf7bb9dd11
+-lsp.zh.md: 8b154143057f05d74bf28b715a385a2ec65fbbff
++lsp.md: 43233890d8704abb99880a30db7abddea38de671
++lsp.zh.md: ae1b2476ff152375580b12a19809e3a9405e45b1
+diff --git a/docs/subsystems/lsp.md b/docs/subsystems/lsp.md
+index 18ed0e1..4323389 100644
+--- a/docs/subsystems/lsp.md
++++ b/docs/subsystems/lsp.md
+@@ -1,22 +1,29 @@
+-# LSP navigation
++# LSP capability
+ 
+ English | [中文](lsp.zh.md)
+ 
+-The LSP seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md) exposing semantic code navigation on one `ctx.lsp` service, split across packages: Service Definition ([dsh-lsp](../../packages/lsp/lsp), `ctx.lsp` + the provider registry), a generic Service Provider ([dsh-lsp-stdio](../../packages/lsp/lsp-stdio), a configured stdio language-server host), and Consumer ([dsh-tool-lsp](../../packages/lsp/tool-lsp), the `lsp` tool schema). LSP is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A provider swap does not change how the model asks for navigation.
++The LSP seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md) exposing semantic code queries on one `ctx.lsp` service, split across packages: Service Definition ([dsh-lsp](../../packages/lsp/lsp), `ctx.lsp` + the provider registry), a generic Service Provider ([dsh-lsp-stdio](../../packages/lsp/lsp-stdio), a configured stdio language-server host), and Consumer ([dsh-tool-lsp](../../packages/lsp/tool-lsp), the `lsp` tool schema). LSP is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A provider swap does not change how the model asks for code queries.
+ 
+ Source: [`packages/lsp/lsp/src/types.ts`](../../packages/lsp/lsp/src/types.ts)
+ 
+ ## Operations and coordinates
+ 
+-The seam and model expose exactly four semantic queries; the union is closed, so adding one is a compile-enforced change across the seam, providers, and the tool. Positions and ranges are zero-based UTF-16, matching the protocol; the model-facing tool owns the one-based cursor convention and converts on the way in and out.
++The seam exposes exactly seven semantic operations; the union is closed, so adding one is a compile-enforced change across the seam, providers, and the tool. Four are position-based navigation (`goToDefinition`, `findReferences`, `goToImplementation`, `hover`); `completion` is also position-based; `diagnostics` is file-scoped; `formatDocument` takes an optional range. Positions and ranges are zero-based UTF-16, matching the protocol; the model-facing tool owns the one-based cursor convention and converts on the way in and out.
+ 
+ ```ts type-equiv
+ /**
+- * The four semantic queries the seam and model expose. A closed union: adding an operation is a
++ * The seven semantic operations the seam exposes. A closed union: adding an operation is a
+  * compile-enforced change across the seam, providers, and the tool. Symbols and call hierarchy are
+  * not operations here; they need different schemas.
+  */
+-type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
++type LspOperation =
++  | 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
++  | 'diagnostics' | 'formatDocument' | 'completion'
++```
++
++```ts type-equiv
++/** The position-based operations, which carry a zero-based `position` in their request. */
++type LspPositionOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover' | 'completion'
+ ```
+ 
+ ```ts type-equiv
+@@ -39,41 +46,59 @@ interface LspRange {
+ 
+ ## Request
+ 
+-Every field is required: `workspaceRoot` is caller-supplied, `languageId` comes from the provider's registration (not the request), and consumers own timeouts and result limits — so no field needs implementation defaulting and there is no `resolve()` step. The provider receives the caller's request plus the derived `languageId`, which only synchronizes the transient document and never participates in selection.
++A request is a closed union over three shapes: position-based (`LspPositionRequest`), position-less (`LspDiagnosticsRequest`), and optional-range (`LspFormatRequest`). `workspaceRoot` is always caller-supplied, `languageId` comes from the provider's registration (not the request), and consumers own timeouts and result limits — so no field needs implementation defaulting and there is no `resolve()` step. The provider receives the caller's request plus the derived `languageId`, which only synchronizes the transient document and never participates in selection.
+ 
+ ```ts type-equiv
+-/**
+- * A caller's normalized query. Every field is required: `workspaceRoot` is caller-supplied,
+- * `languageId` comes from the provider registration (not here), and consumers own timeouts and
+- * result limits — so no field needs implementation defaulting and there is no `resolve()` step.
+- */
+-interface LspQueryRequest {
+-  /** Which semantic query to run. */
+-  readonly operation: LspOperation
+-  /** The source file to query (relative to `workspaceRoot` or absolute; the provider canonicalizes). */
++/** A position-based request: a cursor coordinate plus the source file and workspace root. */
++interface LspPositionRequest {
++  readonly operation: LspPositionOperation
+   readonly filePath: string
+-  /** The zero-based UTF-16 cursor position to query at. */
+   readonly position: LspPosition
+-  /** The workspace root the provider resolves against and indexes; required, never defaulted. */
++  readonly workspaceRoot: string
++}
++```
++
++```ts type-equiv
++/** A file-scoped diagnostics request: the source file and workspace root, with no cursor. */
++interface LspDiagnosticsRequest {
++  readonly operation: 'diagnostics'
++  readonly filePath: string
++  readonly workspaceRoot: string
++}
++```
++
++```ts type-equiv
++/** A formatting request: the source file, workspace root, and an optional range. */
++interface LspFormatRequest {
++  readonly operation: 'formatDocument'
++  readonly filePath: string
++  readonly range?: LspRange
+   readonly workspaceRoot: string
+ }
+ ```
+ 
++```ts type-equiv
++/**
++ * A caller's normalized query: a closed union over position-based, position-less, and optional-range
++ * requests. `workspaceRoot` is always caller-supplied, `languageId` comes from the provider
++ * registration (not here), and consumers own timeouts and result limits — so no field needs
++ * implementation defaulting and there is no `resolve()` step.
++ */
++type LspQueryRequest = LspPositionRequest | LspDiagnosticsRequest | LspFormatRequest
++```
++
+ ```ts type-equiv
+ /**
+  * A request as a provider receives it: the caller's {@link LspQueryRequest} plus the `languageId`
+  * the seam derived from the provider's extension mapping. The language id only synchronizes the
+  * transient document; it does not participate in selection.
+  */
+-interface LspProviderQuery extends LspQueryRequest {
+-  /** The LSP language id for `filePath`, from this provider's extension mapping. */
+-  readonly languageId: string
+-}
++type LspProviderQuery = LspQueryRequest & { readonly languageId: string }
+ ```
+ 
+ ## Result
+ 
+-A CLOSED discriminated union: navigation operations normalize to `locations`, `hover` to content or `null`. Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled. `findReferences` always includes declarations — the provider enforces this internally, so callers get no flag. The `locations` variant carries `resolvedWorkspaceUri`, the provider's canonical workspace `file:` URI. A caller relativizing location URIs uses that coordinate rather than applying host-platform path rules to the possibly-symlinked request root.
++A CLOSED discriminated union with five kinds: navigation operations normalize to `locations`, `hover` to content or `null`, `diagnostics` to a diagnostic list, `formatDocument` to `edits`, and `completion` to `items`. Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled. `findReferences` always includes declarations — the provider enforces this internally, so callers get no flag. The `locations`, `diagnostics`, and `edits` variants carry `resolvedWorkspaceUri`, the provider's canonical workspace `file:` URI. A caller relativizing location URIs uses that coordinate rather than applying host-platform path rules to the possibly-symlinked request root.
+ 
+ ```ts type-equiv
+ /** One resolved location: a document URI and the range within it. */
+@@ -95,20 +120,61 @@ interface LspHover {
+ }
+ ```
+ 
++```ts type-equiv
++/** The four LSP diagnostic severities: `1` Error, `2` Warning, `3` Information, `4` Hint. */
++type LspDiagnosticSeverity = 1 | 2 | 3 | 4
++```
++
++```ts type-equiv
++/** One normalized diagnostic: a severity, a range, a message, and optional source and code. */
++interface LspDiagnostic {
++  readonly severity: LspDiagnosticSeverity
++  readonly range: LspRange
++  readonly message: string
++  readonly source?: string
++  readonly code?: string | number
++}
++```
++
++```ts type-equiv
++/** One normalized text edit: the range to replace and its replacement text. */
++interface LspTextEdit {
++  readonly range: LspRange
++  readonly newText: string
++}
++```
++
++```ts type-equiv
++/** One normalized completion item: a label plus optional kind, detail, and insertion text. */
++interface LspCompletionItem {
++  readonly label: string
++  readonly kind?: number
++  readonly detail?: string
++  readonly insertText?: string
++  readonly textEdit?: LspTextEdit
++  readonly sortText?: string
++}
++```
++
+ ```ts type-equiv
+ /**
+  * The closed result union. Navigation operations (`goToDefinition`, `findReferences`,
+- * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`.
+- * Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled.
++ * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`;
++ * `diagnostics` normalizes to a diagnostic list; `formatDocument` normalizes to `edits`;
++ * `completion` normalizes to `items`. Consumers `switch` on `kind` to exhaustiveness so a new arm
++ * breaks compilation until handled.
+  *
+- * The `locations` variant carries `resolvedWorkspaceUri`: the provider's canonical `file:` URI for
+- * the request's workspace root. A caller that relativizes location URIs MUST use this, not parse the
+- * request's possibly symlinked process path with host-platform rules; the execution platform may
+- * differ from the caller's.
++ * The `locations`, `diagnostics`, and `edits` variants carry `resolvedWorkspaceUri`: the provider's
++ * canonical `file:` URI for the request's workspace root. A caller that relativizes location URIs
++ * MUST use this, not parse the request's possibly symlinked process path with host-platform rules;
++ * the execution platform may differ from the caller's.
+  */
+ type LspQueryResult =
+   | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceUri: string }
+   | { readonly kind: 'hover'; readonly hover: LspHover | null }
++  | { readonly kind: 'diagnostics'; readonly diagnostics: readonly LspDiagnostic[]; readonly resolvedWorkspaceUri: string }
++  | { readonly kind: 'edits'; readonly edits: readonly LspTextEdit[]; readonly resolvedWorkspaceUri: string }
++  | { readonly kind: 'completion'; readonly items: readonly LspCompletionItem[] }
+ ```
+ 
+ ## Provider and service
+@@ -140,7 +206,7 @@ interface LspProvider {
+ ```ts type-equiv
+ /**
+  * The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query
+- * execution; exposes exactly the four operations and no protocol escape hatch.
++ * execution; exposes exactly the seven operations and no protocol escape hatch.
+  */
+ interface LspService {
+   /**
+@@ -176,7 +242,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
+ 
+ ### `ctx.lsp` — `LspService`
+ 
+-The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query execution; exposes exactly the four operations and no protocol escape hatch.
++The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query execution; exposes exactly the seven operations and no protocol escape hatch.
+ 
+ ```ts cordis-catalog
+ /**
+@@ -198,5 +264,5 @@ registerProvider(provider: LspProvider): () => void
+ query(request: LspQueryRequest, signal?: AbortSignal): Promise<LspQueryResult>
+ ```
+ 
+-Source: [`packages/lsp/lsp/src/types.ts:113`](../../packages/lsp/lsp/src/types.ts)
++Source: [`packages/lsp/lsp/src/types.ts:163`](../../packages/lsp/lsp/src/types.ts)
+ <!-- END GENERATED cordis-surface -->
+diff --git a/docs/subsystems/lsp.zh.md b/docs/subsystems/lsp.zh.md
+index 8b15414..ae1b247 100644
+--- a/docs/subsystems/lsp.zh.md
++++ b/docs/subsystems/lsp.zh.md
+@@ -1,22 +1,29 @@
+-# LSP 导航
++# LSP 能力
+ 
+ [English](lsp.md) | 中文
+ 
+-LSP seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)：它在单一 `ctx.lsp` 服务上公开语义代码导航，并拆分到多个包：Service Definition（[dsh-lsp](../../packages/lsp/lsp)，`ctx.lsp` + 提供方注册表）、通用 Service Provider（[dsh-lsp-stdio](../../packages/lsp/lsp-stdio)，经过配置的 stdio 语言服务器宿主）和 Consumer（[dsh-tool-lsp](../../packages/lsp/tool-lsp)，即 `lsp` 工具 schema）。LSP 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。更换提供方不会改变模型请求导航的方式。
++LSP seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)：它在单一 `ctx.lsp` 服务上公开语义代码查询，并拆分到多个包：Service Definition（[dsh-lsp](../../packages/lsp/lsp)，`ctx.lsp` + 提供方注册表）、通用 Service Provider（[dsh-lsp-stdio](../../packages/lsp/lsp-stdio)，经过配置的 stdio 语言服务器宿主）和 Consumer（[dsh-tool-lsp](../../packages/lsp/tool-lsp)，即 `lsp` 工具 schema）。LSP 是**一项可选能力**，不属于 agent loop（智能体循环）主干，因此其词汇定义在此而非 [core.md](core.md) 中。更换提供方不会改变模型请求代码查询的方式。
+ 
+ 源文件：[`packages/lsp/lsp/src/types.ts`](../../packages/lsp/lsp/src/types.ts)
+ 
+ ## 操作与坐标
+ 
+-seam 与模型恰好公开 4 项语义查询；该联合是闭合的，因此新增一项查询会通过编译强制要求同步修改 seam、提供方和工具。位置与范围采用从零开始的 UTF-16 坐标，与协议一致；面向模型的工具采用从 1 开始的光标约定，并在输入和输出时进行转换。
++seam 恰好公开 7 项语义操作；该联合是闭合的，因此新增一项操作会通过编译强制要求同步修改 seam、提供方和工具。其中 4 项是基于位置的导航（`goToDefinition`、`findReferences`、`goToImplementation`、`hover`）；`completion` 同样基于位置；`diagnostics` 按文件作用域；`formatDocument` 接受可选范围。位置与范围采用从零开始的 UTF-16 坐标，与协议一致；面向模型的工具采用从 1 开始的光标约定，并在输入和输出时进行转换。
+ 
+ ```ts type-equiv
+ /**
+- * The four semantic queries the seam and model expose. A closed union: adding an operation is a
++ * The seven semantic operations the seam exposes. A closed union: adding an operation is a
+  * compile-enforced change across the seam, providers, and the tool. Symbols and call hierarchy are
+  * not operations here; they need different schemas.
+  */
+-type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
++type LspOperation =
++  | 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
++  | 'diagnostics' | 'formatDocument' | 'completion'
++```
++
++```ts type-equiv
++/** The position-based operations, which carry a zero-based `position` in their request. */
++type LspPositionOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover' | 'completion'
+ ```
+ 
+ ```ts type-equiv
+@@ -39,41 +46,59 @@ interface LspRange {
+ 
+ ## 请求
+ 
+-每个字段都是必填项：`workspaceRoot` 由调用方提供，`languageId` 来自提供方注册而非请求，超时与结果上限由消费方决定。因此没有字段需要由实现提供默认值，也不存在 `resolve()` 步骤。提供方收到调用方请求和派生的 `languageId`；后者只用于同步瞬态文档，从不参与选择。
++请求是三种形状的闭合联合：基于位置（`LspPositionRequest`）、无位置（`LspDiagnosticsRequest`）与可选范围（`LspFormatRequest`）。`workspaceRoot` 始终由调用方提供，`languageId` 来自提供方注册而非请求，超时与结果上限由消费方决定。因此没有字段需要由实现提供默认值，也不存在 `resolve()` 步骤。提供方收到调用方请求和派生的 `languageId`；后者只用于同步瞬态文档，从不参与选择。
+ 
+ ```ts type-equiv
+-/**
+- * A caller's normalized query. Every field is required: `workspaceRoot` is caller-supplied,
+- * `languageId` comes from the provider registration (not here), and consumers own timeouts and
+- * result limits — so no field needs implementation defaulting and there is no `resolve()` step.
+- */
+-interface LspQueryRequest {
+-  /** Which semantic query to run. */
+-  readonly operation: LspOperation
+-  /** The source file to query (relative to `workspaceRoot` or absolute; the provider canonicalizes). */
++/** A position-based request: a cursor coordinate plus the source file and workspace root. */
++interface LspPositionRequest {
++  readonly operation: LspPositionOperation
+   readonly filePath: string
+-  /** The zero-based UTF-16 cursor position to query at. */
+   readonly position: LspPosition
+-  /** The workspace root the provider resolves against and indexes; required, never defaulted. */
++  readonly workspaceRoot: string
++}
++```
++
++```ts type-equiv
++/** A file-scoped diagnostics request: the source file and workspace root, with no cursor. */
++interface LspDiagnosticsRequest {
++  readonly operation: 'diagnostics'
++  readonly filePath: string
++  readonly workspaceRoot: string
++}
++```
++
++```ts type-equiv
++/** A formatting request: the source file, workspace root, and an optional range. */
++interface LspFormatRequest {
++  readonly operation: 'formatDocument'
++  readonly filePath: string
++  readonly range?: LspRange
+   readonly workspaceRoot: string
+ }
+ ```
+ 
++```ts type-equiv
++/**
++ * A caller's normalized query: a closed union over position-based, position-less, and optional-range
++ * requests. `workspaceRoot` is always caller-supplied, `languageId` comes from the provider
++ * registration (not here), and consumers own timeouts and result limits — so no field needs
++ * implementation defaulting and there is no `resolve()` step.
++ */
++type LspQueryRequest = LspPositionRequest | LspDiagnosticsRequest | LspFormatRequest
++```
++
+ ```ts type-equiv
+ /**
+  * A request as a provider receives it: the caller's {@link LspQueryRequest} plus the `languageId`
+  * the seam derived from the provider's extension mapping. The language id only synchronizes the
+  * transient document; it does not participate in selection.
+  */
+-interface LspProviderQuery extends LspQueryRequest {
+-  /** The LSP language id for `filePath`, from this provider's extension mapping. */
+-  readonly languageId: string
+-}
++type LspProviderQuery = LspQueryRequest & { readonly languageId: string }
+ ```
+ 
+ ## 结果
+ 
+-这是一个闭合的可辨识联合：导航操作规范化为 `locations`，`hover` 规范化为内容或 `null`。消费方使用 `switch` 对 `kind` 做穷尽处理，因此新增分支会使编译失败，直到完成处理。`findReferences` 始终包含声明；提供方在内部强制保证这一点，因此调用方没有对应 flag。`locations` 变体携带 `resolvedWorkspaceUri`，即提供方的规范工作区 `file:` URI。调用方相对化位置 URI 时应使用这一坐标，而不是对可能经过符号链接的请求根目录应用宿主平台路径规则。
++这是一个具有 5 个分支的闭合可辨识联合：导航操作规范化为 `locations`，`hover` 规范化为内容或 `null`，`diagnostics` 规范化为诊断列表，`formatDocument` 规范化为 `edits`，`completion` 规范化为 `items`。消费方使用 `switch` 对 `kind` 做穷尽处理，因此新增分支会使编译失败，直到完成处理。`findReferences` 始终包含声明；提供方在内部强制保证这一点，因此调用方没有对应 flag。`locations`、`diagnostics` 与 `edits` 变体携带 `resolvedWorkspaceUri`，即提供方的规范工作区 `file:` URI。调用方相对化位置 URI 时应使用这一坐标，而不是对可能经过符号链接的请求根目录应用宿主平台路径规则。
+ 
+ ```ts type-equiv
+ /** One resolved location: a document URI and the range within it. */
+@@ -95,20 +120,61 @@ interface LspHover {
+ }
+ ```
+ 
++```ts type-equiv
++/** The four LSP diagnostic severities: `1` Error, `2` Warning, `3` Information, `4` Hint. */
++type LspDiagnosticSeverity = 1 | 2 | 3 | 4
++```
++
++```ts type-equiv
++/** One normalized diagnostic: a severity, a range, a message, and optional source and code. */
++interface LspDiagnostic {
++  readonly severity: LspDiagnosticSeverity
++  readonly range: LspRange
++  readonly message: string
++  readonly source?: string
++  readonly code?: string | number
++}
++```
++
++```ts type-equiv
++/** One normalized text edit: the range to replace and its replacement text. */
++interface LspTextEdit {
++  readonly range: LspRange
++  readonly newText: string
++}
++```
++
++```ts type-equiv
++/** One normalized completion item: a label plus optional kind, detail, and insertion text. */
++interface LspCompletionItem {
++  readonly label: string
++  readonly kind?: number
++  readonly detail?: string
++  readonly insertText?: string
++  readonly textEdit?: LspTextEdit
++  readonly sortText?: string
++}
++```
++
+ ```ts type-equiv
+ /**
+  * The closed result union. Navigation operations (`goToDefinition`, `findReferences`,
+- * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`.
+- * Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled.
++ * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`;
++ * `diagnostics` normalizes to a diagnostic list; `formatDocument` normalizes to `edits`;
++ * `completion` normalizes to `items`. Consumers `switch` on `kind` to exhaustiveness so a new arm
++ * breaks compilation until handled.
+  *
+- * The `locations` variant carries `resolvedWorkspaceUri`: the provider's canonical `file:` URI for
+- * the request's workspace root. A caller that relativizes location URIs MUST use this, not parse the
+- * request's possibly symlinked process path with host-platform rules; the execution platform may
+- * differ from the caller's.
++ * The `locations`, `diagnostics`, and `edits` variants carry `resolvedWorkspaceUri`: the provider's
++ * canonical `file:` URI for the request's workspace root. A caller that relativizes location URIs
++ * MUST use this, not parse the request's possibly symlinked process path with host-platform rules;
++ * the execution platform may differ from the caller's.
+  */
+ type LspQueryResult =
+   | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceUri: string }
+   | { readonly kind: 'hover'; readonly hover: LspHover | null }
++  | { readonly kind: 'diagnostics'; readonly diagnostics: readonly LspDiagnostic[]; readonly resolvedWorkspaceUri: string }
++  | { readonly kind: 'edits'; readonly edits: readonly LspTextEdit[]; readonly resolvedWorkspaceUri: string }
++  | { readonly kind: 'completion'; readonly items: readonly LspCompletionItem[] }
+ ```
+ 
+ ## 提供方与服务
+@@ -140,7 +206,7 @@ interface LspProvider {
+ ```ts type-equiv
+ /**
+  * The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query
+- * execution; exposes exactly the four operations and no protocol escape hatch.
++ * execution; exposes exactly the seven operations and no protocol escape hatch.
+  */
+ interface LspService {
+   /**
+@@ -176,7 +242,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
+ 
+ ### `ctx.lsp` — `LspService`
+ 
+-The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query execution; exposes exactly the four operations and no protocol escape hatch.
++The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query execution; exposes exactly the seven operations and no protocol escape hatch.
+ 
+ ```ts cordis-catalog
+ /**
+@@ -198,5 +264,5 @@ registerProvider(provider: LspProvider): () => void
+ query(request: LspQueryRequest, signal?: AbortSignal): Promise<LspQueryResult>
+ ```
+ 
+-Source: [`packages/lsp/lsp/src/types.ts:113`](../../packages/lsp/lsp/src/types.ts)
++Source: [`packages/lsp/lsp/src/types.ts:163`](../../packages/lsp/lsp/src/types.ts)
+ <!-- END GENERATED cordis-surface -->
+diff --git a/packages/extensions/tool-cordis/src/api-catalog.ts b/packages/extensions/tool-cordis/src/api-catalog.ts
+index 5a81280..0a724f6 100644
+--- a/packages/extensions/tool-cordis/src/api-catalog.ts
++++ b/packages/extensions/tool-cordis/src/api-catalog.ts
+@@ -865,7 +865,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
+   {
+     key: 'lsp',
+     summary: 'The LSP capability seam (`ctx.lsp`).',
+-    description: 'The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query execution; exposes exactly the four operations and no protocol escape hatch.',
++    description: 'The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query execution; exposes exactly the seven operations and no protocol escape hatch.',
+     methods: [
+       {
+         signature: 'registerProvider(provider: LspProvider): () => void',
+@@ -3317,6 +3317,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'LlmRuntime',
+     declaration: 'export class LlmRuntime extends Service {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+   },
++  {
++    name: 'LspCompletionItem',
++    declaration: 'export interface LspCompletionItem {\n    readonly label: string;\n    readonly kind?: number;\n    readonly detail?: string;\n    readonly insertText?: string;\n    readonly textEdit?: LspTextEdit;\n    readonly sortText?: string;\n}',
++  },
++  {
++    name: 'LspDiagnostic',
++    declaration: 'export interface LspDiagnostic {\n    readonly severity: LspDiagnosticSeverity;\n    readonly range: LspRange;\n    readonly message: string;\n    readonly source?: string;\n    readonly code?: string | number;\n}',
++  },
++  {
++    name: 'LspDiagnosticSeverity',
++    declaration: 'export type LspDiagnosticSeverity = 1 | 2 | 3 | 4;',
++  },
++  {
++    name: 'LspDiagnosticsRequest',
++    declaration: 'export interface LspDiagnosticsRequest {\n    readonly operation: \'diagnostics\';\n    readonly filePath: string;\n    readonly workspaceRoot: string;\n}',
++  },
++  {
++    name: 'LspFormatRequest',
++    declaration: 'export interface LspFormatRequest {\n    readonly operation: \'formatDocument\';\n    readonly filePath: string;\n    readonly range?: LspRange;\n    readonly workspaceRoot: string;\n}',
++  },
+   {
+     name: 'LspHover',
+     declaration: 'export interface LspHover {\n    readonly contents: string;\n    readonly range?: LspRange;\n}',
+@@ -3325,14 +3345,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+     name: 'LspLocation',
+     declaration: 'export interface LspLocation {\n    readonly uri: string;\n    readonly range: LspRange;\n}',
+   },
+-  {
+-    name: 'LspOperation',
+-    declaration: 'export type LspOperation = \'goToDefinition\' | \'findReferences\' | \'goToImplementation\' | \'hover\';',
+-  },
+   {
+     name: 'LspPosition',
+     declaration: 'export interface LspPosition {\n    readonly line: number;\n    readonly character: number;\n}',
+   },
++  {
++    name: 'LspPositionOperation',
++    declaration: 'export type LspPositionOperation = \'goToDefinition\' | \'findReferences\' | \'goToImplementation\' | \'hover\' | \'completion\';',
++  },
++  {
++    name: 'LspPositionRequest',
++    declaration: 'export interface LspPositionRequest {\n    readonly operation: LspPositionOperation;\n    readonly filePath: string;\n    readonly position: LspPosition;\n    readonly workspaceRoot: string;\n}',
++  },
+   {
+     name: 'LspProvider',
+     declaration: 'export interface LspProvider {\n    readonly id: LspProviderId;\n    readonly extensionToLanguage: Readonly<Record<string, string>>;\n    query(request: LspProviderQuery, signal?: AbortSignal): Promise<LspQueryResult>;\n}',
+@@ -3343,20 +3367,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
+   },
+   {
+     name: 'LspProviderQuery',
+-    declaration: 'export interface LspProviderQuery extends LspQueryRequest {\n    readonly languageId: string;\n}',
++    declaration: 'export type LspProviderQuery = LspQueryRequest & {\n    readonly languageId: string;\n};',
+   },
+   {
+     name: 'LspQueryRequest',
+-    declaration: 'export interface LspQueryRequest {\n    readonly operation: LspOperation;\n    readonly filePath: string;\n    readonly position: LspPosition;\n    readonly workspaceRoot: string;\n}',
++    declaration: 'export type LspQueryRequest = LspPositionRequest | LspDiagnosticsRequest | LspFormatRequest;',
+   },
+   {
+     name: 'LspQueryResult',
+-    declaration: 'export type LspQueryResult = {\n    readonly kind: \'locations\';\n    readonly locations: readonly LspLocation[];\n    readonly resolvedWorkspaceUri: string;\n} | {\n    readonly kind: \'hover\';\n    readonly hover: LspHover | null;\n};',
++    declaration: 'export type LspQueryResult = {\n    readonly kind: \'locations\';\n    readonly locations: readonly LspLocation[];\n    readonly resolvedWorkspaceUri: string;\n} | {\n    readonly kind: \'hover\';\n    readonly hover: LspHover | null;\n} | {\n    readonly kind: \'diagnostics\';\n    readonly diagnostics: readonly LspDiagnostic[];\n    readonly resolvedWorkspaceUri: string;\n} | {\n    readonly kind: \'edits\';\n    readonly edits: readonly LspTextEdit[];\n    readonly resolvedWorkspaceUri: string;\n} | {\n    readonly kind: \'completion\';\n    readonly items: readonly LspCompletionItem[];\n};',
+   },
+   {
+     name: 'LspRange',
+     declaration: 'export interface LspRange {\n    readonly start: LspPosition;\n    readonly end: LspPosition;\n}',
+   },
++  {
++    name: 'LspTextEdit',
++    declaration: 'export interface LspTextEdit {\n    readonly range: LspRange;\n    readonly newText: string;\n}',
++  },
+   {
+     name: 'ManualCompactAgentContext',
+     declaration: 'export interface ManualCompactAgentContext extends CompactionAgentContext {\n    runMaintenance<T>(task: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
+diff --git a/packages/lsp/README.i18n.yaml b/packages/lsp/README.i18n.yaml
+index 195967e..fb3cce8 100644
+--- a/packages/lsp/README.i18n.yaml
++++ b/packages/lsp/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/lsp/README.md
+-README.md: 414311fd3f537634651daf6f313baf33daede26b
+-README.zh.md: 8791b0ea9c01ed637586cee5c131690a73263a6a
++README.md: 8ca9bef55251f18f77e11f8b74129497a5da322a
++README.zh.md: bce6162492a975cfc48bb60afcd811322daa9797
+diff --git a/packages/lsp/README.md b/packages/lsp/README.md
+index 414311f..8ca9bef 100644
+--- a/packages/lsp/README.md
++++ b/packages/lsp/README.md
+@@ -10,7 +10,7 @@ The language-server capability seam: an LSP Service Definition, a generic stdio
+ | `lsp-stdio/` | Generic multi-server stdio backend over `ctx.fs` and `ctx.subprocess` (JSON-RPC, transient-open queries) | (registers providers on `ctx.lsp`) |
+ | `tool-lsp/` | Model-facing `lsp` tool (four operations, one-based UTF-16 cursor coordinates) | (registers on `ctx.tools`) |
+ 
+-The Service Definition lives at `lsp/lsp/`. The seam exposes exactly four semantic operations — `goToDefinition`, `findReferences`, `goToImplementation`, `hover` — and no generic JSON-RPC escape hatch, so a provider swap does not change how the model asks for navigation and no protocol payload or unreviewed mutation reaches the model contract. Providers register **capabilities**, not tools; `tool-lsp` is the only owner of the model-facing name, schema, prompt guidance, and presentation.
++The Service Definition lives at `lsp/lsp/`. The seam exposes exactly seven semantic operations — `goToDefinition`, `findReferences`, `goToImplementation`, `hover`, `diagnostics`, `formatDocument`, `completion` — and no generic JSON-RPC escape hatch, so a provider swap does not change how the model asks for code queries and no protocol payload or unreviewed mutation reaches the model contract. `formatDocument` returns edits the host never applies; a consumer applies them through `ctx.fs`. The model-facing `tool-lsp` still exposes only the four navigation operations — the action operations live in a separate plugin. Providers register **capabilities**, not tools; `tool-lsp` is the only owner of the model-facing name, schema, prompt guidance, and presentation.
+ 
+ See the [LSP capability seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md) for the design rationale, including why documents open transiently per query, why the stdio host consumes the shared filesystem/subprocess execution world, and why extension ownership is exclusive within one runtime.
+ 
+diff --git a/packages/lsp/README.zh.md b/packages/lsp/README.zh.md
+index 8791b0e..bce6162 100644
+--- a/packages/lsp/README.zh.md
++++ b/packages/lsp/README.zh.md
+@@ -10,7 +10,7 @@
+ | `lsp-stdio/` | 基于 `ctx.fs` 与 `ctx.subprocess` 的通用多服务器 stdio 后端（JSON-RPC、查询时临时打开文档） | （在 `ctx.lsp` 上注册提供方） |
+ | `tool-lsp/` | 面向模型的 `lsp` 工具（四种操作、从 1 开始的 UTF-16 光标坐标） | （注册到 `ctx.tools`） |
+ 
+-Service Definition 位于 `lsp/lsp/`。该 seam 恰好公开四种语义操作：`goToDefinition`、`findReferences`、`goToImplementation`、`hover`，且不提供通用 JSON-RPC 逃生口；因此，替换提供方不会改变模型请求导航的方式，也不会让协议载荷或未经评审的修改进入模型约定。提供方注册的是**能力**而非工具；`tool-lsp` 是面向模型的名称、schema、提示词指引和呈现的唯一 owner。
++Service Definition 位于 `lsp/lsp/`。该 seam 恰好公开七种语义操作：`goToDefinition`、`findReferences`、`goToImplementation`、`hover`、`diagnostics`、`formatDocument`、`completion`，且不提供通用 JSON-RPC 逃生口；因此，替换提供方不会改变模型请求代码查询的方式，也不会让协议载荷或未经评审的修改进入模型约定。`formatDocument` 返回主机绝不应用的编辑，消费方通过 `ctx.fs` 应用它们。面向模型的 `tool-lsp` 仍只公开四种导航操作——action 操作位于单独的插件。提供方注册的是**能力**而非工具；`tool-lsp` 是面向模型的名称、schema、提示词指引和呈现的唯一 owner。
+ 
+ 设计原理见 [LSP 能力 seam Agent Note](../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)，其中也解释了文档为何在每次查询时临时打开、stdio 主机为何使用共享的文件系统／子进程执行环境，以及扩展名归属为何在同一运行时内互斥。
+ 
+diff --git a/packages/lsp/lsp-stdio/README.i18n.yaml b/packages/lsp/lsp-stdio/README.i18n.yaml
+index 6ca3618..47b3b98 100644
+--- a/packages/lsp/lsp-stdio/README.i18n.yaml
++++ b/packages/lsp/lsp-stdio/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/lsp/lsp-stdio/README.md
+-README.md: beadc34ec738ae3f6511cae764240c0e9d8c61d7
+-README.zh.md: 2d6516a25147fb7593e8d45d843315098cdff7d3
++README.md: 39a941a84216f938c74a2bb60e9d729367256004
++README.zh.md: aec2a408e41af5656b1e1a3f61eabb97575be370
+diff --git a/packages/lsp/lsp-stdio/README.md b/packages/lsp/lsp-stdio/README.md
+index beadc34..39a941a 100644
+--- a/packages/lsp/lsp-stdio/README.md
++++ b/packages/lsp/lsp-stdio/README.md
+@@ -28,17 +28,19 @@ The `servers` record key is the stable provider id reserved on `ctx.lsp`; each v
+ | `extensionToLanguage` | (required) | Lowercase leading-dot extension → LSP language id (e.g. `{ '.ts': 'typescript' }`). |
+ | `initializationOptions` | `null` | Static `initialize` options forwarded to the server. |
+ | `configuration` | `null` | Static answer to every `workspace/configuration` item. |
++| `formattingOptions` | `null` | Static `textDocument/formatting` options; `null` omits the `options` field. |
++| `diagnosticsSettleMs` | `2000` | Bounded settle window for push-only diagnostics (`publishDiagnostics`). |
+ | `maxMessageBytes` | `16000000` | Largest single framed message accepted from the server. |
+ | `maxStderrBytes` | `1000000` | Largest stderr tail retained for diagnostics. |
+ | `maxDocumentBytes` | `4000000` | Largest source file this host will open. |
+ | `shutdownTimeoutMs` | `5000` | Graceful `shutdown`/`exit` budget before escalation. |
+ | `killGraceMs` | `2000` | Grace for request cancellation and for SIGTERM→SIGKILL escalation. |
+ 
+-`servers` must contain at least one entry, and every id must be non-empty. Timer budgets must be positive integers no greater than Node's `2_147_483_647` ms timer limit. All executables resolve at load after credential scrubbing; a bad later entry prevents every provider from registering. Processes launch lazily on the first matching query.
++`servers` must contain at least one entry, and every id must be non-empty. Timer budgets (including `diagnosticsSettleMs`) must be positive integers no greater than Node's `2_147_483_647` ms timer limit. All executables resolve at load after credential scrubbing; a bad later entry prevents every provider from registering. Processes launch lazily on the first matching query.
+ 
+ ## Protocol behavior
+ 
+-Initialization advertises `general.positionEncodings: ['utf-16']`, `workspace: { workspaceFolders: true, configuration: true }`, `textDocument.hover.contentFormat: ['markdown', 'plaintext']`, and `linkSupport: true` for definition and implementation, with no dynamic registration. The server's returned capabilities are authoritative: an unsupported operation, or synchronization without transient open/close, fails the query. An omitted server `positionEncoding` defaults to `utf-16`; any other value is a protocol error. The client answers `workspace/configuration` from static config, accepts lifecycle bookkeeping requests, and rejects `workspace/applyEdit` — it never applies edits or runs commands. Navigation maps `Location` directly and `LocationLink` from `targetUri` + `targetSelectionRange`; hover normalization takes valid `MarkupContent.value`, preserves string `MarkedString`s, renders language-tagged values as fenced code, and joins arrays with one blank line. Missing results, malformed ranges or positions, and malformed hover encodings fail as structured `LSP_MALFORMED_RESPONSE` errors.
++Initialization advertises `general.positionEncodings: ['utf-16']`, `workspace: { workspaceFolders: true, configuration: true }`, `textDocument.hover.contentFormat: ['markdown', 'plaintext']`, `textDocument.completion: {}`, `textDocument.publishDiagnostics: { relatedInformation: false }`, and `linkSupport: true` for definition and implementation, with no dynamic registration. The server's returned capabilities are authoritative: an unsupported operation, or synchronization without transient open/close, fails the query. An omitted server `positionEncoding` defaults to `utf-16`; any other value is a protocol error. The client answers `workspace/configuration` from static config, accepts lifecycle bookkeeping requests, and rejects `workspace/applyEdit` — it never applies edits or runs commands. Navigation maps `Location` directly and `LocationLink` from `targetUri` + `targetSelectionRange`; hover normalization takes valid `MarkupContent.value`, preserves string `MarkedString`s, renders language-tagged values as fenced code, and joins arrays with one blank line. `completion` normalizes `CompletionItem[]`/`CompletionList`; `formatDocument` normalizes `TextEdit[]` into edits the host never applies (a consumer applies them through `ctx.fs`), selecting `textDocument/rangeFormatting` when the request carries a range; `diagnostics` pulls `textDocument/diagnostic` when the server advertises `diagnosticProvider`, else waits up to `diagnosticsSettleMs` for a `textDocument/publishDiagnostics` push. Missing results, malformed ranges or positions, and malformed result encodings fail as structured `LSP_MALFORMED_RESPONSE` errors.
+ 
+ ## Security boundary
+ 
+diff --git a/packages/lsp/lsp-stdio/README.zh.md b/packages/lsp/lsp-stdio/README.zh.md
+index 2d6516a..aec2a40 100644
+--- a/packages/lsp/lsp-stdio/README.zh.md
++++ b/packages/lsp/lsp-stdio/README.zh.md
+@@ -28,17 +28,19 @@ Namespace 插件（`name`／`inject`／`Config`／`apply`，无默认导出）
+ | `extensionToLanguage` | （必填） | 小写、以点开头的扩展名 → LSP language id（例如 `{ '.ts': 'typescript' }`）。 |
+ | `initializationOptions` | `null` | 转发给服务器的静态 `initialize` 选项。 |
+ | `configuration` | `null` | 每个 `workspace/configuration` 配置项的静态答案。 |
++| `formattingOptions` | `null` | 静态 `textDocument/formatting` 选项；`null` 表示省略 `options` 字段。 |
++| `diagnosticsSettleMs` | `2000` | 仅推送式诊断（`publishDiagnostics`）的有界稳定窗口。 |
+ | `maxMessageBytes` | `16000000` | 从服务器接受的单条 framed 消息最大大小。 |
+ | `maxStderrBytes` | `1000000` | 为诊断保留的 stderr 尾部最大大小。 |
+ | `maxDocumentBytes` | `4000000` | 该主机可打开的源文件大小上限。 |
+ | `shutdownTimeoutMs` | `5000` | 升级前用于优雅 `shutdown`／`exit` 的预算。 |
+ | `killGraceMs` | `2000` | 请求取消及 SIGTERM→SIGKILL 升级的宽限期。 |
+ 
+-`servers` 必须至少包含一个配置项，每个 id 都必须非空。定时器预算必须是正整数，且不超过 Node 的 `2_147_483_647` ms 定时器上限。所有可执行文件都会在清理 credential 后于加载时解析；后面的坏配置项会阻止所有提供方注册。进程在第一次匹配查询时惰性启动。
++`servers` 必须至少包含一个配置项，每个 id 都必须非空。定时器预算（包括 `diagnosticsSettleMs`）必须是正整数，且不超过 Node 的 `2_147_483_647` ms 定时器上限。所有可执行文件都会在清理 credential 后于加载时解析；后面的坏配置项会阻止所有提供方注册。进程在第一次匹配查询时惰性启动。
+ 
+ ## 协议行为
+ 
+-初始化会声明 `general.positionEncodings: ['utf-16']`、`workspace: { workspaceFolders: true, configuration: true }`、`textDocument.hover.contentFormat: ['markdown', 'plaintext']`，以及定义与实现使用的 `linkSupport: true`，且不进行动态注册。服务器返回的能力具有最终决定权：不受支持的操作，或缺少临时打开／关闭的同步方式，会使查询失败。服务器省略 `positionEncoding` 时默认为 `utf-16`；其他值都属于协议错误。客户端通过静态配置回答 `workspace/configuration`，接受生命周期记账请求，并拒绝 `workspace/applyEdit`：它绝不应用编辑或运行命令。导航直接映射 `Location`，并从 `LocationLink` 的 `targetUri` + `targetSelectionRange` 映射；hover 规范化会取得有效的 `MarkupContent.value`，保留 string `MarkedString`，把带 language tag 的值渲染为围栏代码，并用一个空行连接数组。缺失结果、格式错误的范围或位置，以及格式错误的 hover 编码，都会以结构化 `LSP_MALFORMED_RESPONSE` 错误的形式失败。
++初始化会声明 `general.positionEncodings: ['utf-16']`、`workspace: { workspaceFolders: true, configuration: true }`、`textDocument.hover.contentFormat: ['markdown', 'plaintext']`、`textDocument.completion: {}`、`textDocument.publishDiagnostics: { relatedInformation: false }`，以及定义与实现使用的 `linkSupport: true`，且不进行动态注册。服务器返回的能力具有最终决定权：不受支持的操作，或缺少临时打开／关闭的同步方式，会使查询失败。服务器省略 `positionEncoding` 时默认为 `utf-16`；其他值都属于协议错误。客户端通过静态配置回答 `workspace/configuration`，接受生命周期记账请求，并拒绝 `workspace/applyEdit`：它绝不应用编辑或运行命令。导航直接映射 `Location`，并从 `LocationLink` 的 `targetUri` + `targetSelectionRange` 映射；hover 规范化会取得有效的 `MarkupContent.value`，保留 string `MarkedString`，把带 language tag 的值渲染为围栏代码，并用一个空行连接数组。`completion` 规范化 `CompletionItem[]`／`CompletionList`；`formatDocument` 把 `TextEdit[]` 规范化为主机绝不应用的编辑（消费方通过 `ctx.fs` 应用它们），当请求携带范围时选择 `textDocument/rangeFormatting`；`diagnostics` 在服务器声明 `diagnosticProvider` 时拉取 `textDocument/diagnostic`，否则等待 `textDocument/publishDiagnostics` 推送，最长等待 `diagnosticsSettleMs`。缺失结果、格式错误的范围或位置，以及格式错误的结果编码，都会以结构化 `LSP_MALFORMED_RESPONSE` 错误的形式失败。
+ 
+ ## 安全边界
+ 
+diff --git a/packages/lsp/lsp-stdio/src/connection.ts b/packages/lsp/lsp-stdio/src/connection.ts
+index 5cfcf10..6446f04 100644
+--- a/packages/lsp/lsp-stdio/src/connection.ts
++++ b/packages/lsp/lsp-stdio/src/connection.ts
+@@ -68,6 +68,7 @@ export class LspConnection {
+   private readonly stdin: Writable
+   private readonly decoder: MessageDecoder
+   private readonly pending = new Map<number, Pending>()
++  private readonly notificationHandlers = new Set<(method: string, params: unknown) => void>()
+   private nextId = 1
+   private closeReason: Error | undefined
+   /** Set once the process has fully exited; the instance awaits it during teardown. */
+@@ -191,6 +192,19 @@ export class LspConnection {
+     return this.write({ jsonrpc: '2.0', method, params })
+   }
+ 
++  /**
++   * Register a handler for server→client notifications (e.g. `textDocument/publishDiagnostics`).
++   * Handlers run synchronously on the inbound decode path; the returned disposer unregisters one.
++   * @param handler - the callback receiving the notification method and params.
++   * @returns a disposer removing the handler.
++   */
++  onNotification(handler: (method: string, params: unknown) => void): () => void {
++    this.notificationHandlers.add(handler)
++    return () => {
++      this.notificationHandlers.delete(handler)
++    }
++  }
++
+   /**
+    * Send a `$/cancelRequest` for an in-flight request id (best-effort; ignores write failure).
+    * @param requestId - the numeric id of the request to cancel.
+@@ -251,7 +265,8 @@ export class LspConnection {
+       return
+     }
+     if (typeof method === 'string') {
+-      // A server→client notification (e.g. diagnostics, logs): ignored by this MVP host.
++      // A server→client notification (e.g. publishDiagnostics, logs): route to registered handlers.
++      for (const handler of this.notificationHandlers) handler(method, frame.params)
+       return
+     }
+     if (typeof id === 'number') this.handleResponse(id, frame)
+diff --git a/packages/lsp/lsp-stdio/src/index.ts b/packages/lsp/lsp-stdio/src/index.ts
+index ebc5470..a8d4bcf 100644
+--- a/packages/lsp/lsp-stdio/src/index.ts
++++ b/packages/lsp/lsp-stdio/src/index.ts
+@@ -31,10 +31,14 @@ export { canonicalizeWorkspace, readHostSource } from './host.ts'
+ export { encodeMessage, MessageDecoder } from './framing.ts'
+ export {
+   negotiatePositionEncoding,
++  normalizeCompletionItems,
++  normalizeDiagnostics,
++  normalizeEdits,
+   normalizeHover,
+   normalizeLocations,
+   requestMethod,
+   supportsOperation,
++  supportsPullDiagnostics,
+   supportsTransientOpen,
+ } from './translate.ts'
+ export { LspInstance } from './instance.ts'
+@@ -51,6 +55,7 @@ const DEFAULT_MAX_STDERR_BYTES = 1_000_000
+ const DEFAULT_MAX_DOCUMENT_BYTES = 4_000_000
+ const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000
+ const DEFAULT_KILL_GRACE_MS = 2_000
++const DEFAULT_DIAGNOSTICS_SETTLE_MS = 2_000
+ 
+ /** One configured local language server and its host bounds. */
+ export interface LspLocalServerConfig {
+@@ -66,6 +71,10 @@ export interface LspLocalServerConfig {
+   initializationOptions?: unknown
+   /** Static answer to every `workspace/configuration` item. Default `null`. */
+   configuration?: unknown
++  /** Static `textDocument/formatting` options forwarded to the server. Default `null`. */
++  formattingOptions?: unknown
++  /** Bounded settle window (ms) for push-only diagnostics. Default 2000. */
++  diagnosticsSettleMs?: number
+   /** Largest single framed message accepted from the server (bytes). Default 16000000. */
+   maxMessageBytes?: number
+   /** Largest stderr tail retained for diagnostics (bytes). Default 1000000. */
+@@ -95,6 +104,8 @@ const LspLocalServerConfig: z<LspLocalServerConfig> = z.object({
+   extensionToLanguage: z.dict(String).required(),
+   initializationOptions: z.any().default(null),
+   configuration: z.any().default(null),
++  formattingOptions: z.any().default(null),
++  diagnosticsSettleMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_DIAGNOSTICS_SETTLE_MS),
+   maxMessageBytes: z.number().default(DEFAULT_MAX_MESSAGE_BYTES),
+   maxStderrBytes: z.number().default(DEFAULT_MAX_STDERR_BYTES),
+   maxDocumentBytes: z.number().default(DEFAULT_MAX_DOCUMENT_BYTES),
+@@ -191,6 +202,7 @@ function validateServerConfig(providerId: string, resolved: ResolvedServerConfig
+   // nonpositive value would let a server that ignores shutdown hang disposal forever. Fail at load.
+   assertTimer(providerId, 'shutdownTimeoutMs', resolved.shutdownTimeoutMs)
+   assertTimer(providerId, 'killGraceMs', resolved.killGraceMs)
++  assertTimer(providerId, 'diagnosticsSettleMs', resolved.diagnosticsSettleMs)
+   // Byte caps must be positive: a nonpositive stderr cap defeats the retained-tail bound
+   // (`slice(-0)` keeps everything), `maxMessageBytes: 0` makes every response fatal, and a bad
+   // document cap fails later in the read path instead of at load.
+@@ -341,6 +353,8 @@ class LocalLspProvider implements LspProvider {
+       env: this.config.env,
+       configuration: this.config.configuration,
+       initializationOptions: this.config.initializationOptions,
++      formattingOptions: this.config.formattingOptions,
++      diagnosticsSettleMs: this.config.diagnosticsSettleMs,
+       maxMessageBytes: this.config.maxMessageBytes,
+       maxStderrBytes: this.config.maxStderrBytes,
+       shutdownTimeoutMs: this.config.shutdownTimeoutMs,
+diff --git a/packages/lsp/lsp-stdio/src/instance.ts b/packages/lsp/lsp-stdio/src/instance.ts
+index 2028129..e42c9b1 100644
+--- a/packages/lsp/lsp-stdio/src/instance.ts
++++ b/packages/lsp/lsp-stdio/src/instance.ts
+@@ -7,13 +7,13 @@
+  * @module @deepseek-ai/dsh-lsp-stdio/instance
+  */
+ 
++import { assertNever } from '@deepseek-ai/dsh-llm'
+ import { LspError } from '@deepseek-ai/dsh-lsp'
+ import type {
+-  LspOperation,
+   LspProviderQuery,
+   LspQueryResult,
+ } from '@deepseek-ai/dsh-lsp'
+-import { deadline } from '@deepseek-ai/dsh-timeout'
++import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
+ import { abortable, abortError } from './abort.ts'
+ import { LspConnection } from './connection.ts'
+ import type { ConnectionSpawner, ConnectionSpec, ConnectionWriter } from './connection.ts'
+@@ -21,10 +21,14 @@ import type { HostSource } from './host.ts'
+ import type { WireInitializeResult, WireServerCapabilities } from './protocol.ts'
+ import {
+   negotiatePositionEncoding,
++  normalizeCompletionItems,
++  normalizeDiagnostics,
++  normalizeEdits,
+   normalizeHover,
+   normalizeLocations,
+   requestMethod,
+   supportsOperation,
++  supportsPullDiagnostics,
+   supportsTransientOpen,
+ } from './translate.ts'
+ 
+@@ -34,6 +38,10 @@ export interface InstanceSpec extends ConnectionSpec {
+   readonly workspaceUri: string
+   /** Static `initialize` options forwarded to the server. */
+   readonly initializationOptions: unknown
++  /** Static `textDocument/formatting` options; `null` omits the `options` field. */
++  readonly formattingOptions: unknown
++  /** Bounded settle window (ms) for push-only diagnostics (`publishDiagnostics`). */
++  readonly diagnosticsSettleMs: number
+   /** Graceful `shutdown`/`exit` budget before escalation (ms). */
+   readonly shutdownTimeoutMs: number
+ }
+@@ -41,6 +49,10 @@ export interface InstanceSpec extends ConnectionSpec {
+ /**
+  * A single initialized server process. Not exported as a provider — the provider single-flights and
+  * pools these. `query()` serializes; `dispose()` rejects queued work and tears the process down.
++ *
++ * Every query stays read-only for the host: `formatDocument` normalizes to `edits` that the host
++ * never applies — a consumer applies them through `ctx.fs` — and the host rejects
++ * `workspace/applyEdit`, so no query mutates the document it transiently opens.
+  */
+ export class LspInstance {
+   private readonly connection: LspConnection
+@@ -54,6 +66,10 @@ export class LspInstance {
+   private processClosed = false
+   /** Populated once `initialize` succeeds; a failed handshake rejects every query. */
+   private readonly ready: Promise<void>
++  /** Latest `publishDiagnostics` batch per URI, collected by the push-diagnostics path. */
++  private readonly diagnosticsByUri = new Map<string, unknown>()
++  /** Resolvers waiting on a `publishDiagnostics` for their URI (push diagnostics). */
++  private readonly diagnosticWaiters = new Map<string, Array<() => void>>()
+ 
+   /**
+    * @param spec - the launch, initialize, and teardown parameters.
+@@ -62,6 +78,19 @@ export class LspInstance {
+    */
+   constructor(private readonly spec: InstanceSpec, spawner: ConnectionSpawner, writer?: ConnectionWriter) {
+     this.connection = new LspConnection(spec, spawner, (method, params) => this.answerServerRequest(method, params), writer)
++    this.connection.onNotification((method, params) => {
++      if (method !== 'textDocument/publishDiagnostics') return
++      const record = params as { uri?: unknown; diagnostics?: unknown } | null
++      if (record === null || typeof record !== 'object') return
++      if (typeof record.uri !== 'string') return
++      // A server may re-spell the opened document URI (tsls percent-encodes the drive colon and
++      // lowercases it on Windows); normalize so the push matches the transiently-opened document.
++      const uri = canonicalDiagnosticsUri(record.uri)
++      // The latest batch replaces any earlier batch for the same URI (LSP semantics).
++      this.diagnosticsByUri.set(uri, record.diagnostics)
++      for (const wake of this.diagnosticWaiters.get(uri) ?? []) wake()
++      this.diagnosticWaiters.delete(uri)
++    })
+     this.ready = this.initialize()
+     // A handshake rejection must not surface as an unhandled rejection before the first query awaits
+     // it; queries attach the real handler.
+@@ -143,7 +172,7 @@ export class LspInstance {
+     const capabilities = this.capabilities
+     /* v8 ignore next -- `ready` resolves only after capabilities are set, else it rejects above; defensive. */
+     if (capabilities === undefined) throw new Error('LSP instance is not initialized')
+-    if (!supportsOperation(capabilities, request.operation)) {
++    if (!supportsOperation(capabilities, request)) {
+       throw new LspError(`server does not support ${request.operation}`, 'LSP_UNSUPPORTED_OPERATION')
+     }
+     if (!supportsTransientOpen(capabilities.textDocumentSync)) {
+@@ -151,6 +180,7 @@ export class LspInstance {
+     }
+ 
+     const uri = source.fileUrl
++    const pushDiagnostics = request.operation === 'diagnostics' && !supportsPullDiagnostics(capabilities)
+     let opened = false
+     try {
+       /* v8 ignore next -- guards an abort landing between the ready wait and didOpen; not deterministically reproducible. */
+@@ -166,8 +196,14 @@ export class LspInstance {
+         throw error
+       }
+       opened = true
+-      const payload = await this.sendRequest(request.operation, uri, request.position, signal)
+-      return this.normalize(request.operation, payload)
++      if (pushDiagnostics) {
++        // The server has no diagnosticProvider: diagnostics arrive on the push path
++        // (`publishDiagnostics`) after didOpen, so wait for them instead of issuing a pull request.
++        const diagnostics = await this.collectPushDiagnostics(uri, signal)
++        return { kind: 'diagnostics', diagnostics: normalizeDiagnostics(diagnostics), resolvedWorkspaceUri: this.spec.workspaceUri }
++      }
++      const payload = await this.sendRequest(request, uri, signal)
++      return this.normalize(request, payload)
+     } finally {
+       // A disposed or closed instance (e.g. an aborted request whose server ignored
+       // `$/cancelRequest`) is already tearing down; sending didClose would race that teardown and let
+@@ -189,25 +225,80 @@ export class LspInstance {
+     }
+   }
+ 
+-  private async sendRequest(
+-    operation: LspOperation,
+-    uri: string,
+-    position: LspProviderQuery['position'],
+-    signal?: AbortSignal,
+-  ): Promise<unknown> {
+-    const params = {
+-      textDocument: { uri },
+-      position: { line: position.line, character: position.character },
+-      // findReferences always includes declarations: the caller gets no flag and impact analysis
+-      // never omits the defining site.
+-      ...(operation === 'findReferences' ? { context: { includeDeclaration: true } } : {}),
+-    }
++  private async sendRequest(request: LspProviderQuery, uri: string, signal?: AbortSignal): Promise<unknown> {
++    const params = this.buildParams(request, uri)
+     const requestId = this.connection.peekNextId()
+-    const send = this.connection.request(requestMethod(operation), params)
++    const send = this.connection.request(requestMethod(request), params)
+     if (signal === undefined) return send
+     return this.raceAbort(send, requestId, signal)
+   }
+ 
++  /** Build the request params for one operation, narrowing the request union on its operation. */
++  private buildParams(request: LspProviderQuery, uri: string): Record<string, unknown> {
++    switch (request.operation) {
++      case 'goToDefinition':
++      case 'findReferences':
++      case 'goToImplementation':
++      case 'hover':
++      case 'completion':
++        return {
++          textDocument: { uri },
++          position: { line: request.position.line, character: request.position.character },
++          // findReferences always includes declarations: the caller gets no flag and impact analysis
++          // never omits the defining site.
++          ...(request.operation === 'findReferences' ? { context: { includeDeclaration: true } } : {}),
++        }
++      case 'diagnostics':
++        return { textDocument: { uri } }
++      case 'formatDocument': {
++        const params: Record<string, unknown> = { textDocument: { uri } }
++        if (this.spec.formattingOptions !== null) params.options = this.spec.formattingOptions
++        if (request.range !== undefined) {
++          params.range = {
++            start: { line: request.range.start.line, character: request.range.start.character },
++            end: { line: request.range.end.line, character: request.range.end.character },
++          }
++        }
++        return params
++      }
++      /* v8 ignore next -- exhaustive over the closed LspOperation union; unreachable. */
++      default:
++        return assertNever(request, 'buildParams')
++    }
++  }
++
++  /**
++   * Wait for the server's `publishDiagnostics` for `uri`, or for the configured settle window. The
++   * latest batch replaces earlier batches for the same URI; the collected entry is cleared when this
++   * query completes.
++   * @param uri - the opened document URI whose diagnostics to collect.
++   * @param signal - optional cancellation; an upstream abort propagates, a settle timeout resolves.
++   * @returns the raw diagnostics payload (or `[]` when the settle window elapsed with none).
++   */
++  private async collectPushDiagnostics(uri: string, signal?: AbortSignal): Promise<unknown> {
++    const key = canonicalDiagnosticsUri(uri)
++    this.diagnosticsByUri.delete(key)
++    const settle = deadline(signal, this.spec.diagnosticsSettleMs, 'LSP_DIAGNOSTICS_SETTLE')
++    const arrived = new Promise<unknown>((resolve) => {
++      const waiters = this.diagnosticWaiters.get(key) ?? []
++      waiters.push(() => { resolve(this.diagnosticsByUri.get(key)) })
++      this.diagnosticWaiters.set(key, waiters)
++    })
++    try {
++      return await abortable(arrived, settle.signal)
++    } catch (error) {
++      // The settle window elapsed (not an upstream abort): return whatever arrived, normally none.
++      if (timeoutOf(settle.signal, 'LSP_DIAGNOSTICS_SETTLE') !== undefined) {
++        return this.diagnosticsByUri.get(key) ?? []
++      }
++      throw error
++    } finally {
++      this.diagnosticWaiters.delete(key)
++      this.diagnosticsByUri.delete(key)
++      settle[Symbol.dispose]()
++    }
++  }
++
+   /**
+    * Race a pending request against abort. On abort, send `$/cancelRequest` and give the server a
+    * bounded grace to acknowledge; if it does not settle in time, invalidate and tear down the
+@@ -240,13 +331,27 @@ export class LspInstance {
+     }
+   }
+ 
+-  private normalize(operation: LspOperation, payload: unknown): LspQueryResult {
+-    if (operation === 'hover') {
+-      return { kind: 'hover', hover: normalizeHover(payload) }
++  private normalize(request: LspProviderQuery, payload: unknown): LspQueryResult {
++    switch (request.operation) {
++      case 'goToDefinition':
++      case 'findReferences':
++      case 'goToImplementation':
++        // The filesystem provider owns URI syntax for the execution platform, which may differ from
++        // the harness host. Preserve that coordinate through rendering instead of reparsing
++        // `spec.cwd` there.
++        return { kind: 'locations', locations: normalizeLocations(payload), resolvedWorkspaceUri: this.spec.workspaceUri }
++      case 'hover':
++        return { kind: 'hover', hover: normalizeHover(payload) }
++      case 'diagnostics':
++        return { kind: 'diagnostics', diagnostics: normalizeDiagnostics(payload), resolvedWorkspaceUri: this.spec.workspaceUri }
++      case 'formatDocument':
++        return { kind: 'edits', edits: normalizeEdits(payload), resolvedWorkspaceUri: this.spec.workspaceUri }
++      case 'completion':
++        return { kind: 'completion', items: normalizeCompletionItems(payload) }
++      /* v8 ignore next -- exhaustive over the closed LspOperation union; unreachable. */
++      default:
++        return assertNever(request, 'normalize')
+     }
+-    // The filesystem provider owns URI syntax for the execution platform, which may differ from the
+-    // harness host. Preserve that coordinate through rendering instead of reparsing `spec.cwd` there.
+-    return { kind: 'locations', locations: normalizeLocations(payload), resolvedWorkspaceUri: this.spec.workspaceUri }
+   }
+ 
+   private answerServerRequest(method: string, params: unknown): Promise<unknown> {
+@@ -329,10 +434,40 @@ function markSettled(): boolean {
+   return true
+ }
+ 
++/**
++ * Normalize a `file:` URI for publishDiagnostics matching. A server may re-spell the document URI
++ * (typescript-language-server percent-encodes the drive colon and lowercases it on Windows), so the
++ * push must be matched against the transiently-opened URI by percent-decoding the pathname and
++ * case-folding it on Windows rather than by raw string equality. Non-`file:` URIs pass through.
++ * @param uri - the server-pushed document URI.
++ * @returns the canonical URI key for the diagnostics batch.
++ */
++function canonicalDiagnosticsUri(uri: string): string {
++  let url: URL
++  try {
++    url = new URL(uri)
++  } catch {
++    return uri
++  }
++  if (url.protocol !== 'file:') return uri
++  let pathname: string
++  try {
++    pathname = decodeURIComponent(url.pathname)
++  } catch {
++    // A malformed percent-escape cannot be decoded; keep the raw pathname so the push still lands
++    // under its verbatim key (it simply will not match the opened document).
++    pathname = url.pathname
++  }
++  /* v8 ignore next -- native Windows coverage exercises the case-fold arm; POSIX paths have no drive letter to fold */
++  if (process.platform === 'win32') pathname = pathname.toLowerCase()
++  return `file://${pathname}`
++}
++
+ /**
+  * The client capabilities advertised at `initialize`: UTF-16 positions, workspace folders and
+- * configuration, markdown/plaintext hover, and link support for definition/implementation. No
+- * dynamic registration; the server's returned capabilities are authoritative.
++ * configuration, markdown/plaintext hover, completion, push diagnostics, and link support for
++ * definition/implementation. No dynamic registration; the server's returned capabilities are
++ * authoritative.
+  */
+ const CLIENT_CAPABILITIES = {
+   general: { positionEncodings: ['utf-16'] },
+@@ -343,5 +478,7 @@ const CLIENT_CAPABILITIES = {
+     definition: { linkSupport: true },
+     implementation: { linkSupport: true },
+     references: {},
++    completion: {},
++    publishDiagnostics: { relatedInformation: false },
+   },
+ } as const
+diff --git a/packages/lsp/lsp-stdio/src/protocol.ts b/packages/lsp/lsp-stdio/src/protocol.ts
+index 9625767..451c7bc 100644
+--- a/packages/lsp/lsp-stdio/src/protocol.ts
++++ b/packages/lsp/lsp-stdio/src/protocol.ts
+@@ -1,8 +1,9 @@
+ /**
+- * The subset of LSP wire types this generic host reads and writes: initialize capabilities, the four
+- * request results (`Location`, `LocationLink`, `Hover`), and the `textDocumentSync` shapes used to
+- * decide transient-open support. Types only. Fields absent from a real server payload stay optional;
+- * the translation layer normalizes them into the seam's closed unions.
++ * The subset of LSP wire types this generic host reads and writes: initialize capabilities, the
++ * request results (`Location`, `LocationLink`, `Hover`, `Diagnostic`, `TextEdit`, `CompletionItem`),
++ * and the `textDocumentSync` shapes used to decide transient-open support. Types only. Fields absent
++ * from a real server payload stay optional; the translation layer normalizes them into the seam's
++ * closed unions.
+  * @module @deepseek-ai/dsh-lsp-stdio/protocol
+  */
+ 
+@@ -52,6 +53,31 @@ export interface WireHover {
+   readonly range?: WireRange
+ }
+ 
++/** A `Diagnostic`: a severity, range, message, and optional source and code, as the server sent them. */
++export interface WireDiagnostic {
++  readonly severity?: unknown
++  readonly range: WireRange
++  readonly message: string
++  readonly source?: unknown
++  readonly code?: unknown
++}
++
++/** A `TextEdit`: a range and its replacement text, as the server sent them. */
++export interface WireTextEdit {
++  readonly range: WireRange
++  readonly newText: string
++}
++
++/** A `CompletionItem`: a label plus optional kind/detail/text, as the server sent them. */
++export interface WireCompletionItem {
++  readonly label: string
++  readonly kind?: unknown
++  readonly detail?: unknown
++  readonly insertText?: unknown
++  readonly textEdit?: WireTextEdit
++  readonly sortText?: unknown
++}
++
+ /** The legacy enum form of `textDocumentSync` (`0` None, `1` Full, `2` Incremental). */
+ export type WireTextDocumentSyncKind = 0 | 1 | 2
+ 
+@@ -72,6 +98,10 @@ export interface WireServerCapabilities {
+   readonly referencesProvider?: WireProviderCapability
+   readonly implementationProvider?: WireProviderCapability
+   readonly hoverProvider?: WireProviderCapability
++  readonly completionProvider?: WireProviderCapability
++  readonly documentFormattingProvider?: WireProviderCapability
++  readonly documentRangeFormattingProvider?: WireProviderCapability
++  readonly diagnosticProvider?: WireProviderCapability
+ }
+ 
+ /** The `initialize` result envelope. */
+diff --git a/packages/lsp/lsp-stdio/src/translate.ts b/packages/lsp/lsp-stdio/src/translate.ts
+index c3a9151..bf88cd9 100644
+--- a/packages/lsp/lsp-stdio/src/translate.ts
++++ b/packages/lsp/lsp-stdio/src/translate.ts
+@@ -1,15 +1,20 @@
+ /**
+  * Pure protocol translation for the local host: what the server's capabilities allow, and how its
+- * `Location`/`LocationLink`/`Hover` payloads normalize into the seam's closed result unions. No I/O
+- * or process state — every function here is a pure transform, which the fake-stdio tests pin exactly.
++ * `Location`/`LocationLink`/`Hover`/`Diagnostic`/`TextEdit`/`CompletionItem` payloads normalize into
++ * the seam's closed result unions. No I/O or process state — every function here is a pure transform,
++ * which the fake-stdio tests pin exactly.
+  * @module @deepseek-ai/dsh-lsp-stdio/translate
+  */
+ 
+ import type {
++  LspCompletionItem,
++  LspDiagnostic,
++  LspDiagnosticSeverity,
+   LspHover,
+   LspLocation,
+-  LspOperation,
++  LspProviderQuery,
+   LspRange,
++  LspTextEdit,
+ } from '@deepseek-ai/dsh-lsp'
+ import { LspError } from '@deepseek-ai/dsh-lsp'
+ import { assertNever } from '@deepseek-ai/dsh-llm'
+@@ -25,30 +30,22 @@ import type {
+ } from './protocol.ts'
+ 
+ /**
+- * The `textDocument/*` request method for each LSP operation.
+- * @param operation - the LSP operation to map.
++ * The `textDocument/*` request method for one LSP operation. `formatDocument` selects
++ * `textDocument/rangeFormatting` when the request carries a range, else `textDocument/formatting`.
++ * @param request - the resolved provider query whose operation to map.
+  * @returns the LSP request method name.
+  */
+-export function requestMethod(operation: LspOperation): string {
+-  switch (operation) {
++export function requestMethod(request: LspProviderQuery): string {
++  switch (request.operation) {
+     case 'goToDefinition': return 'textDocument/definition'
+     case 'findReferences': return 'textDocument/references'
+     case 'goToImplementation': return 'textDocument/implementation'
+     case 'hover': return 'textDocument/hover'
++    case 'completion': return 'textDocument/completion'
++    case 'diagnostics': return 'textDocument/diagnostic'
++    case 'formatDocument': return request.range !== undefined ? 'textDocument/rangeFormatting' : 'textDocument/formatting'
+     /* v8 ignore next -- exhaustive over the closed LspOperation union; unreachable. */
+-    default: return assertNever(operation, 'requestMethod')
+-  }
+-}
+-
+-/** The `ServerCapabilities` provider field backing each operation. */
+-function capabilityValue(capabilities: WireServerCapabilities, operation: LspOperation): WireProviderCapability {
+-  switch (operation) {
+-    case 'goToDefinition': return capabilities.definitionProvider
+-    case 'findReferences': return capabilities.referencesProvider
+-    case 'goToImplementation': return capabilities.implementationProvider
+-    case 'hover': return capabilities.hoverProvider
+-    /* v8 ignore next -- exhaustive over the closed LspOperation union; unreachable. */
+-    default: return assertNever(operation, 'capabilityValue')
++    default: return assertNever(request, 'requestMethod')
+   }
+ }
+ 
+@@ -60,13 +57,36 @@ function supportsCapability(value: WireProviderCapability): boolean {
+ }
+ 
+ /**
+- * Whether the server advertises the requested operation.
++ * Whether the server advertises pull diagnostics (`textDocument/diagnostic`).
++ * @param capabilities - the server's `initialize` capabilities.
++ * @returns true when `diagnosticProvider` is present.
++ */
++export function supportsPullDiagnostics(capabilities: WireServerCapabilities): boolean {
++  return capabilities.diagnosticProvider !== undefined
++}
++
++/**
++ * Whether the server advertises the requested operation. `diagnostics` is supported by either the
++ * pull path (`diagnosticProvider`) or the push path (publishDiagnostics over transient open); the
++ * instance distinguishes the two with {@link supportsPullDiagnostics}.
+  * @param capabilities - the server's `initialize` capabilities.
+- * @param operation - the LSP operation to check.
+- * @returns true when the corresponding provider capability is present.
++ * @param request - the resolved provider query whose operation to check.
++ * @returns true when the corresponding capability is present (or a push fallback applies).
+  */
+-export function supportsOperation(capabilities: WireServerCapabilities, operation: LspOperation): boolean {
+-  return supportsCapability(capabilityValue(capabilities, operation))
++export function supportsOperation(capabilities: WireServerCapabilities, request: LspProviderQuery): boolean {
++  switch (request.operation) {
++    case 'goToDefinition': return supportsCapability(capabilities.definitionProvider)
++    case 'findReferences': return supportsCapability(capabilities.referencesProvider)
++    case 'goToImplementation': return supportsCapability(capabilities.implementationProvider)
++    case 'hover': return supportsCapability(capabilities.hoverProvider)
++    case 'completion': return supportsCapability(capabilities.completionProvider)
++    case 'formatDocument': return supportsCapability(
++      request.range !== undefined ? capabilities.documentRangeFormattingProvider : capabilities.documentFormattingProvider,
++    )
++    case 'diagnostics': return supportsPullDiagnostics(capabilities) || supportsTransientOpen(capabilities.textDocumentSync)
++    /* v8 ignore next -- exhaustive over the closed LspOperation union; unreachable. */
++    default: return assertNever(request, 'supportsOperation')
++  }
+ }
+ 
+ /**
+@@ -117,7 +137,7 @@ function isLocation(value: Record<string, unknown>): boolean {
+   return typeof value.uri === 'string' && isRange(value.range)
+ }
+ 
+-/** Structural range guard used by both location shapes. */
++/** Structural range guard used by every result shape. */
+ function isRange(value: unknown): value is WireRange {
+   if (value === null || typeof value !== 'object') return false
+   const range = value as Record<string, unknown>
+@@ -166,6 +186,127 @@ export function normalizeLocations(payload: unknown): LspLocation[] {
+   return locations
+ }
+ 
++/**
++ * Normalize a `Diagnostic[]` (or `null`) to the seam's diagnostics. Severity defaults to `1` (Error)
++ * per the protocol and must be an integer `1..4`; `source` is an optional string and `code` an
++ * optional string or number.
++ * @param payload - the raw `textDocument/diagnostic` or `textDocument/publishDiagnostics` result.
++ * @returns the normalized diagnostics (empty for `null`/`[]`).
++ * @throws Error when an element is non-object or structurally invalid.
++ */
++export function normalizeDiagnostics(payload: unknown): LspDiagnostic[] {
++  if (payload === null) return []
++  if (payload === undefined) throw malformedResponse('LSP diagnostics result was missing')
++  if (!Array.isArray(payload)) throw malformedResponse('LSP diagnostics result was not an array')
++  return payload.map((element) => {
++    if (element === null || typeof element !== 'object') {
++      throw malformedResponse('LSP diagnostics result contained a non-object entry')
++    }
++    const record = element as Record<string, unknown>
++    if (!isRange(record.range)) throw malformedResponse('LSP diagnostic contained a malformed range')
++    if (typeof record.message !== 'string') throw malformedResponse('LSP diagnostic message was not a string')
++    const severity = record.severity === undefined ? 1 : record.severity
++    if (typeof severity !== 'number' || !Number.isInteger(severity) || severity < 1 || severity > 4) {
++      throw malformedResponse('LSP diagnostic severity was not an integer from 1 to 4')
++    }
++    if (record.source !== undefined && typeof record.source !== 'string') {
++      throw malformedResponse('LSP diagnostic source was not a string')
++    }
++    if (record.code !== undefined && typeof record.code !== 'string' && typeof record.code !== 'number') {
++      throw malformedResponse('LSP diagnostic code was not a string or number')
++    }
++    return {
++      severity: severity as LspDiagnosticSeverity,
++      range: toRange(record.range),
++      message: record.message,
++      ...(typeof record.source === 'string' ? { source: record.source } : {}),
++      ...(typeof record.code === 'string' || typeof record.code === 'number' ? { code: record.code } : {}),
++    }
++  })
++}
++
++/**
++ * Normalize a `TextEdit[]` (or `null`) to the seam's text edits. Each entry needs a valid range and a
++ * `newText` string (which may be empty).
++ * @param payload - the raw `textDocument/formatting|rangeFormatting` result.
++ * @returns the normalized text edits (empty for `null`/`[]`).
++ * @throws Error when an element is non-object or structurally invalid.
++ */
++export function normalizeEdits(payload: unknown): LspTextEdit[] {
++  if (payload === null) return []
++  if (payload === undefined) throw malformedResponse('LSP formatting result was missing')
++  if (!Array.isArray(payload)) throw malformedResponse('LSP formatting result was not an array')
++  return payload.map((element) => {
++    if (element === null || typeof element !== 'object') {
++      throw malformedResponse('LSP formatting result contained a non-object entry')
++    }
++    const record = element as Record<string, unknown>
++    if (!isRange(record.range)) throw malformedResponse('LSP text edit contained a malformed range')
++    if (typeof record.newText !== 'string') throw malformedResponse('LSP text edit newText was not a string')
++    return { range: toRange(record.range), newText: record.newText }
++  })
++}
++
++/**
++ * Normalize a `CompletionItem[]`, a `CompletionList` (`{ isIncomplete, items }`), or `null` to the
++ * seam's completion items. Each item needs a string `label`; optional `kind` (integer), `detail`,
++ * `insertText`, `sortText` (strings), and `textEdit` (range + `newText` string).
++ * @param payload - the raw `textDocument/completion` result.
++ * @returns the normalized completion items (empty for `null`/`[]`).
++ * @throws Error when an item is non-object or structurally invalid.
++ */
++export function normalizeCompletionItems(payload: unknown): LspCompletionItem[] {
++  if (payload === null) return []
++  if (payload === undefined) throw malformedResponse('LSP completion result was missing')
++  let items: readonly unknown[]
++  if (Array.isArray(payload)) {
++    items = payload
++  } else if (typeof payload === 'object') {
++    const list = payload as Record<string, unknown>
++    if (!Array.isArray(list.items)) throw malformedResponse('LSP completion list items were not an array')
++    items = list.items
++  } else {
++    throw malformedResponse('LSP completion result was not an array or CompletionList')
++  }
++  return items.map((element) => {
++    if (element === null || typeof element !== 'object') {
++      throw malformedResponse('LSP completion result contained a non-object entry')
++    }
++    const record = element as Record<string, unknown>
++    if (typeof record.label !== 'string') throw malformedResponse('LSP completion item label was not a string')
++    if (record.kind !== undefined && (typeof record.kind !== 'number' || !Number.isInteger(record.kind))) {
++      throw malformedResponse('LSP completion item kind was not an integer')
++    }
++    if (record.detail !== undefined && typeof record.detail !== 'string') {
++      throw malformedResponse('LSP completion item detail was not a string')
++    }
++    if (record.insertText !== undefined && typeof record.insertText !== 'string') {
++      throw malformedResponse('LSP completion item insertText was not a string')
++    }
++    if (record.sortText !== undefined && typeof record.sortText !== 'string') {
++      throw malformedResponse('LSP completion item sortText was not a string')
++    }
++    let textEdit: LspTextEdit | undefined
++    if (record.textEdit !== undefined) {
++      if (record.textEdit === null || typeof record.textEdit !== 'object') {
++        throw malformedResponse('LSP completion item textEdit was not an object')
++      }
++      const edit = record.textEdit as Record<string, unknown>
++      if (!isRange(edit.range)) throw malformedResponse('LSP completion item textEdit contained a malformed range')
++      if (typeof edit.newText !== 'string') throw malformedResponse('LSP completion item textEdit newText was not a string')
++      textEdit = { range: toRange(edit.range), newText: edit.newText }
++    }
++    return {
++      label: record.label,
++      ...(typeof record.kind === 'number' ? { kind: record.kind } : {}),
++      ...(typeof record.detail === 'string' ? { detail: record.detail } : {}),
++      ...(typeof record.insertText === 'string' ? { insertText: record.insertText } : {}),
++      ...(textEdit !== undefined ? { textEdit } : {}),
++      ...(typeof record.sortText === 'string' ? { sortText: record.sortText } : {}),
++    }
++  })
++}
++
+ /** Render one `MarkedString` (string form verbatim; object form as a language-tagged fenced block). */
+ function renderMarkedString(value: WireMarkedString): string {
+   if (typeof value === 'string') return value
+diff --git a/packages/lsp/lsp-stdio/tests/connection.spec.ts b/packages/lsp/lsp-stdio/tests/connection.spec.ts
+index 3785e67..b895c02 100644
+--- a/packages/lsp/lsp-stdio/tests/connection.spec.ts
++++ b/packages/lsp/lsp-stdio/tests/connection.spec.ts
+@@ -99,6 +99,20 @@ describe('LspConnection', () => {
+     await expect(conn.request('textDocument/hover', {})).resolves.toBeDefined()
+   })
+ 
++  it('routes server notifications to registered handlers and removes them on dispose', async () => {
++    const seen: Array<{ method: string; params: unknown }> = []
++    const conn = connect({ LSP_FAKE_ON_OPEN: 'notification' })
++    const dispose = conn.onNotification((method, params) => { seen.push({ method, params }) })
++    await conn.request('initialize', { capabilities: {} })
++    await conn.notify('textDocument/didOpen', { textDocument: { uri: 'file:///x', languageId: 'ts', version: 1, text: '' } })
++    await waitFor(() => seen.length > 0)
++    expect(seen[0]?.method).toBe('window/logMessage')
++    dispose()
++    await conn.notify('textDocument/didOpen', { textDocument: { uri: 'file:///x', languageId: 'ts', version: 2, text: '' } })
++    await new Promise<void>(resolve => setTimeout(resolve, 100))
++    expect(seen).toHaveLength(1)
++  })
++
+   it('sends an error response when the server-request handler rejects', async () => {
+     const seen: SeenRequest[] = []
+     const conn = connect(
+diff --git a/packages/lsp/lsp-stdio/tests/fixture-server.ts b/packages/lsp/lsp-stdio/tests/fixture-server.ts
+index 428abe0..cba2977 100644
+--- a/packages/lsp/lsp-stdio/tests/fixture-server.ts
++++ b/packages/lsp/lsp-stdio/tests/fixture-server.ts
+@@ -8,6 +8,10 @@
+  * - LSP_FAKE_SYNC: textDocumentSync value as JSON (default 1/Full).
+  * - LSP_FAKE_CAPS: JSON of extra capability flags merged into the defaults.
+  * - LSP_FAKE_DEF / LSP_FAKE_REFS / LSP_FAKE_IMPL / LSP_FAKE_HOVER: JSON result per request.
++ * - LSP_FAKE_COMPLETION / LSP_FAKE_FORMAT / LSP_FAKE_RANGE_FORMAT / LSP_FAKE_DIAGNOSTICS: JSON result
++ *   for textDocument/completion, formatting, rangeFormatting, and diagnostic (pull) respectively.
++ * - LSP_FAKE_PUSH_DIAGNOSTICS: "1" omits diagnosticProvider and emits a textDocument/publishDiagnostics
++ *   (with LSP_FAKE_DIAGNOSTICS as the payload) when a didOpen arrives (push-only diagnostics).
+  * - LSP_FAKE_HANG: "1" makes textDocument/* requests never respond (for abort/timeout tests).
+  * - LSP_FAKE_CRASH_ON_OPEN: "1" exits the process when a didOpen arrives (crash test).
+  * - LSP_FAKE_EXIT_AFTER_REPLY: "1" exits the process right after answering a textDocument/* request,
+@@ -44,6 +48,7 @@ const noShutdown = process.env.LSP_FAKE_NO_SHUTDOWN === '1'
+ const onOpen = process.env.LSP_FAKE_ON_OPEN
+ const errorReply = process.env.LSP_FAKE_ERROR === '1'
+ const garbage = process.env.LSP_FAKE_GARBAGE === '1'
++const pushDiagnostics = process.env.LSP_FAKE_PUSH_DIAGNOSTICS === '1'
+ 
+ let serverRequestId = 10_000
+ const pendingServerRequests = new Map<number, string>()
+@@ -65,6 +70,10 @@ function resultFor(method: string): unknown {
+       if (echoName !== undefined) return { contents: process.env[echoName] ?? `<${echoName} unset>` }
+       return envJson('LSP_FAKE_HOVER', null)
+     }
++    case 'textDocument/completion': return envJson('LSP_FAKE_COMPLETION', null)
++    case 'textDocument/formatting': return envJson('LSP_FAKE_FORMAT', null)
++    case 'textDocument/rangeFormatting': return envJson('LSP_FAKE_RANGE_FORMAT', null)
++    case 'textDocument/diagnostic': return envJson('LSP_FAKE_DIAGNOSTICS', null)
+     default: return null
+   }
+ }
+@@ -74,6 +83,16 @@ function envJson(name: string, fallback: unknown): unknown {
+   return raw === undefined ? fallback : JSON.parse(raw)
+ }
+ 
++/**
++ * Re-spell a `file:` URI the way typescript-language-server does on Windows: percent-encode the
++ * drive colon and lowercase the drive letter (`file:///C:/...` → `file:///c%3A/...`). The client must
++ * normalize this back when matching pushed diagnostics to the opened document.
++ */
++function respellDiagnosticsUri(uri: unknown): unknown {
++  if (typeof uri !== 'string' || process.platform !== 'win32') return uri
++  return uri.replace(/^(file:\/\/\/)([A-Za-z])(:)/, (_match, prefix: string, drive: string) => `${prefix}${drive.toLowerCase()}%3A`)
++}
++
+ let buffer = Buffer.alloc(0)
+ process.stdin.on('data', (chunk: Buffer) => {
+   buffer = Buffer.concat([buffer, chunk])
+@@ -113,6 +132,10 @@ function handle(message: { id?: number; method?: string; params?: unknown; resul
+           referencesProvider: true,
+           implementationProvider: true,
+           hoverProvider: true,
++          completionProvider: true,
++          documentFormattingProvider: true,
++          documentRangeFormattingProvider: true,
++          ...(pushDiagnostics ? {} : { diagnosticProvider: true }),
+           ...(extraCaps as Record<string, unknown>),
+         },
+       },
+@@ -142,6 +165,13 @@ function handle(message: { id?: number; method?: string; params?: unknown; resul
+       const params = message.params as { textDocument?: { text?: unknown } } | undefined
+       appendFileSync(openMarker, `${JSON.stringify(params?.textDocument?.text)}\n`)
+     }
++    if (pushDiagnostics) {
++      const params = message.params as { textDocument?: { uri?: unknown } } | undefined
++      send({
++        method: 'textDocument/publishDiagnostics',
++        params: { uri: respellDiagnosticsUri(params?.textDocument?.uri), diagnostics: envJson('LSP_FAKE_DIAGNOSTICS', []) },
++      })
++    }
+     if (onOpen !== undefined) emitServerRequest(onOpen)
+     return
+   }
+diff --git a/packages/lsp/lsp-stdio/tests/instance.spec.ts b/packages/lsp/lsp-stdio/tests/instance.spec.ts
+index 9efc091..4bf3a30 100644
+--- a/packages/lsp/lsp-stdio/tests/instance.spec.ts
++++ b/packages/lsp/lsp-stdio/tests/instance.spec.ts
+@@ -10,7 +10,7 @@ import { LspInstance, readHostSource } from '@deepseek-ai/dsh-lsp-stdio'
+ import { encodeMessage } from '@deepseek-ai/dsh-lsp-stdio'
+ import type { ConnectionWriter } from '@deepseek-ai/dsh-lsp-stdio/src/connection.ts'
+ import type { InstanceSpec } from '@deepseek-ai/dsh-lsp-stdio/src/instance.ts'
+-import type { LspProviderQuery, LspQueryResult } from '@deepseek-ai/dsh-lsp'
++import type { LspProviderQuery, LspQueryResult, LspRange } from '@deepseek-ai/dsh-lsp'
+ import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+ import { spawnSubprocess } from '@deepseek-ai/dsh-subprocess-local/src/spawn.ts'
+ 
+@@ -52,6 +52,8 @@ function makeInstance(
+     env: { ...scrubbedParentEnv(), ...env },
+     configuration: { setting: 42 },
+     initializationOptions: { init: true },
++    formattingOptions: null,
++    diagnosticsSettleMs: 2_000,
+     maxMessageBytes: 16_000_000,
+     maxStderrBytes: 100_000,
+     shutdownTimeoutMs: 200,
+@@ -62,19 +64,29 @@ function makeInstance(
+   return instance
+ }
+ 
+-function query(operation: LspProviderQuery['operation'] = 'goToDefinition'): LspProviderQuery {
+-  return { operation, filePath: 'a.ts', position: { line: 0, character: 6 }, workspaceRoot: ws, languageId: 'typescript' }
++function query(operation: LspProviderQuery['operation'] = 'goToDefinition', range?: LspRange): LspProviderQuery {
++  const base = { filePath: 'a.ts', workspaceRoot: ws, languageId: 'typescript' }
++  if (operation === 'diagnostics') return { operation, ...base }
++  if (operation === 'formatDocument') {
++    return range === undefined ? { operation, ...base } : { operation, ...base, range }
++  }
++  return { operation, position: { line: 0, character: 6 }, ...base }
+ }
+ 
+ /** Run a query against an instance, reading the source first the way the provider does. */
+-async function run(instance: LspInstance, operation: LspProviderQuery['operation'] = 'goToDefinition', signal?: AbortSignal): Promise<LspQueryResult> {
++async function run(
++  instance: LspInstance,
++  operation: LspProviderQuery['operation'] = 'goToDefinition',
++  signal?: AbortSignal,
++  range?: LspRange,
++): Promise<LspQueryResult> {
+   const workspace = {
+     target: await fs.resolve(ws),
+     canonicalPath: ws,
+     fileUrl: pathToFileURL(ws).href,
+   }
+   const source = await readHostSource(fs, 'a.ts', workspace, 4_000_000)
+-  return instance.query(query(operation), source, signal)
++  return instance.query(query(operation, range), source, signal)
+ }
+ 
+ /** Build an instance whose "server" is an inline node script (for teardown-escalation control). */
+@@ -87,6 +99,8 @@ function scriptInstance(script: string, overrides: Partial<InstanceSpec> = {}):
+     env: scrubbedParentEnv(),
+     configuration: null,
+     initializationOptions: null,
++    formattingOptions: null,
++    diagnosticsSettleMs: 2_000,
+     maxMessageBytes: 16_000_000,
+     maxStderrBytes: 100_000,
+     shutdownTimeoutMs: 150,
+@@ -270,6 +284,133 @@ describe('LspInstance query and abort', () => {
+   })
+ })
+ 
++describe('LspInstance diagnostics/format/completion', () => {
++  const range = { start: { line: 0, character: 0 }, end: { line: 0, character: 3 } }
++
++  it('pulls diagnostics through textDocument/diagnostic', async () => {
++    const diagnostics = [{ range, message: 'bad', severity: 1, source: 'ts' }]
++    const instance = makeInstance({ LSP_FAKE_DIAGNOSTICS: JSON.stringify(diagnostics) })
++    await expect(run(instance, 'diagnostics')).resolves.toEqual({
++      kind: 'diagnostics',
++      diagnostics,
++      resolvedWorkspaceUri: pathToFileURL(ws).href,
++    })
++  })
++
++  it('settles push diagnostics from publishDiagnostics', async () => {
++    const diagnostics = [{ range, message: 'pushed', severity: 2 }]
++    const instance = makeInstance({ LSP_FAKE_PUSH_DIAGNOSTICS: '1', LSP_FAKE_DIAGNOSTICS: JSON.stringify(diagnostics) })
++    await expect(run(instance, 'diagnostics')).resolves.toEqual({
++      kind: 'diagnostics',
++      diagnostics,
++      resolvedWorkspaceUri: pathToFileURL(ws).href,
++    })
++  })
++
++  it('settles push diagnostics to empty when no publish arrives', async () => {
++    const instance = scriptInstance(RESPONDING_SERVER, { diagnosticsSettleMs: 50 })
++    await expect(run(instance, 'diagnostics')).resolves.toEqual({
++      kind: 'diagnostics',
++      diagnostics: [],
++      resolvedWorkspaceUri: pathToFileURL(ws).href,
++    })
++  })
++
++  it('formats the document and returns edits', async () => {
++    const edits = [{ range, newText: 'const x = 2\n' }]
++    const instance = makeInstance({ LSP_FAKE_FORMAT: JSON.stringify(edits) })
++    await expect(run(instance, 'formatDocument')).resolves.toEqual({
++      kind: 'edits',
++      edits,
++      resolvedWorkspaceUri: pathToFileURL(ws).href,
++    })
++  })
++
++  it('uses rangeFormatting when the request carries a range', async () => {
++    const edits = [{ range, newText: 'x' }]
++    // Only LSP_FAKE_RANGE_FORMAT is populated, so a formatting request would resolve to null edits;
++    // asserting the edits proves the instance mapped the ranged request to rangeFormatting.
++    const instance = makeInstance({ LSP_FAKE_RANGE_FORMAT: JSON.stringify(edits) })
++    await expect(run(instance, 'formatDocument', undefined, range)).resolves.toEqual({
++      kind: 'edits',
++      edits,
++      resolvedWorkspaceUri: pathToFileURL(ws).href,
++    })
++  })
++
++  it('normalizes a CompletionList into completion items', async () => {
++    const items = [{ label: 'fn', kind: 3, detail: 'fn()' }]
++    const instance = makeInstance({ LSP_FAKE_COMPLETION: JSON.stringify({ isIncomplete: false, items }) })
++    await expect(run(instance, 'completion')).resolves.toEqual({ kind: 'completion', items })
++  })
++
++  it('rejects a completion query when the server lacks completionProvider', async () => {
++    const instance = makeInstance({ LSP_FAKE_CAPS: JSON.stringify({ completionProvider: false }) })
++    await expect(run(instance, 'completion')).rejects.toThrow(expect.objectContaining({ code: 'LSP_UNSUPPORTED_OPERATION' }))
++  })
++
++  it('rejects a formatDocument query when the server lacks documentFormattingProvider', async () => {
++    const instance = makeInstance({ LSP_FAKE_CAPS: JSON.stringify({ documentFormattingProvider: false }) })
++    await expect(run(instance, 'formatDocument')).rejects.toThrow(expect.objectContaining({ code: 'LSP_UNSUPPORTED_OPERATION' }))
++  })
++
++  it('rejects a malformed diagnostics payload as LSP_MALFORMED_RESPONSE', async () => {
++    const instance = makeInstance({ LSP_FAKE_DIAGNOSTICS: JSON.stringify([{ message: 'no range' }]) })
++    await expect(run(instance, 'diagnostics')).rejects.toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
++  })
++
++  it('rejects a malformed completion payload as LSP_MALFORMED_RESPONSE', async () => {
++    const instance = makeInstance({ LSP_FAKE_COMPLETION: JSON.stringify([{ detail: 'missing label' }]) })
++    await expect(run(instance, 'completion')).rejects.toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
++  })
++
++  it('propagates an abort during the push-diagnostics settle wait', async () => {
++    const instance = scriptInstance(RESPONDING_SERVER, { diagnosticsSettleMs: 2_000 })
++    const controller = new AbortController()
++    const pending = run(instance, 'diagnostics', controller.signal)
++    await new Promise<void>(resolve => setTimeout(resolve, 200))
++    controller.abort(new Error('diag-abort'))
++    await expect(pending).rejects.toThrow(/diag-abort/)
++  })
++
++  it('forwards formattingOptions to the formatting request', async () => {
++    const marker = join(root, 'format-options.json')
++    const script = 'let b=Buffer.alloc(0);const{writeFileSync}=require("node:fs");'
++      + 'const fr=(o)=>{const x=Buffer.from(JSON.stringify({jsonrpc:"2.0",...o}));return Buffer.concat([Buffer.from(`Content-Length: ${x.length}\\r\\n\\r\\n`),x]);};'
++      + 'process.stdin.on("data",c=>{b=Buffer.concat([b,c]);for(;;){const s=b.indexOf("\\r\\n\\r\\n");if(s<0)break;const len=Number(/(\\d+)/.exec(b.toString("ascii",0,s))[1]);if(b.length<s+4+len)break;const m=JSON.parse(b.toString("utf8",s+4,s+4+len));b=b.subarray(s+4+len);'
++      + 'if(m.method==="initialize")process.stdout.write(fr({id:m.id,result:{capabilities:{positionEncoding:"utf-16",textDocumentSync:1,documentFormattingProvider:true}}}));'
++      + `else if(m.method==="textDocument/formatting"){writeFileSync(${JSON.stringify(marker)},JSON.stringify(m.params.options));process.stdout.write(fr({id:m.id,result:[]}));}`
++      + '}});'
++    const instance = scriptInstance(script, { formattingOptions: { tabSize: 2 } })
++    await expect(run(instance, 'formatDocument')).resolves.toMatchObject({ kind: 'edits', edits: [] })
++    expect(JSON.parse(await readFile(marker, 'utf8'))).toEqual({ tabSize: 2 })
++  })
++
++  it('ignores malformed and unrelated notifications during a query', async () => {
++    const script = 'let b=Buffer.alloc(0);'
++      + 'const fr=(o)=>{const x=Buffer.from(JSON.stringify({jsonrpc:"2.0",...o}));return Buffer.concat([Buffer.from(`Content-Length: ${x.length}\\r\\n\\r\\n`),x]);};'
++      + 'process.stdin.on("data",c=>{b=Buffer.concat([b,c]);for(;;){const s=b.indexOf("\\r\\n\\r\\n");if(s<0)break;const len=Number(/(\\d+)/.exec(b.toString("ascii",0,s))[1]);if(b.length<s+4+len)break;const m=JSON.parse(b.toString("utf8",s+4,s+4+len));b=b.subarray(s+4+len);'
++      + 'if(m.method==="initialize")process.stdout.write(fr({id:m.id,result:{capabilities:{positionEncoding:"utf-16",textDocumentSync:1,definitionProvider:true}}}));'
++      + 'else if(m.method==="textDocument/didOpen"){'
++      + 'process.stdout.write(fr({method:"window/logMessage",params:{type:3,message:"hi"}}));'
++      + 'process.stdout.write(fr({method:"textDocument/publishDiagnostics",params:null}));'
++      + 'process.stdout.write(fr({method:"textDocument/publishDiagnostics",params:"oops"}));'
++      + 'process.stdout.write(fr({method:"textDocument/publishDiagnostics",params:{uri:123,diagnostics:[]}}));'
++      + 'process.stdout.write(fr({method:"textDocument/publishDiagnostics",params:{uri:"http://example.com/x",diagnostics:[]}}));'
++      + 'process.stdout.write(fr({method:"textDocument/publishDiagnostics",params:{uri:"file:///bad%zz",diagnostics:[]}}));'
++      + 'process.stdout.write(fr({method:"textDocument/publishDiagnostics",params:{uri:"not-a-uri",diagnostics:[]}}));'
++      + '}'
++      + 'else if(m.method==="textDocument/definition")process.stdout.write(fr({id:m.id,result:null}));'
++      + '}});'
++    const instance = scriptInstance(script)
++    await expect(run(instance, 'goToDefinition')).resolves.toEqual({
++      kind: 'locations',
++      locations: [],
++      resolvedWorkspaceUri: pathToFileURL(ws).href,
++    })
++  })
++})
++
+ describe('LspInstance disposal', () => {
+   it('lets a server finish protocol exit before signal escalation', async () => {
+     const marker = join(root, 'graceful-exit.log')
+diff --git a/packages/lsp/lsp-stdio/tests/provider.spec.ts b/packages/lsp/lsp-stdio/tests/provider.spec.ts
+index 4f2ac65..7e416b1 100644
+--- a/packages/lsp/lsp-stdio/tests/provider.spec.ts
++++ b/packages/lsp/lsp-stdio/tests/provider.spec.ts
+@@ -116,7 +116,21 @@ describe('lsp-stdio provider resolution', () => {
+     await ctx.fiber.dispose()
+   })
+ 
+-  it.each(['shutdownTimeoutMs', 'killGraceMs'] as const)('rejects %s above Node timer range at load', async (name) => {
++  it('rejects a nonpositive diagnostics settle window at load', async () => {
++    const ctx = new Context()
++    await ctx.plugin(Lsp)
++    await ctx.plugin(LocalSubprocessRuntime)
++    await ctx.plugin(LocalFileSystem, { cwd: process.cwd() })
++    await expect(ctx.plugin(LspLocal, config('bad-settle', {
++      command: process.execPath,
++      args: ['-e', ''],
++      extensionToLanguage: { '.ts': 'typescript' },
++      diagnosticsSettleMs: 0,
++    }))).rejects.toThrow(/servers\.bad-settle\.diagnosticsSettleMs must be a positive integer/)
++    await ctx.fiber.dispose()
++  })
++
++  it.each(['shutdownTimeoutMs', 'killGraceMs', 'diagnosticsSettleMs'] as const)('rejects %s above Node timer range at load', async (name) => {
+     const ctx = new Context()
+     await ctx.plugin(Lsp)
+     await ctx.plugin(LocalSubprocessRuntime)
+diff --git a/packages/lsp/lsp-stdio/tests/translate.spec.ts b/packages/lsp/lsp-stdio/tests/translate.spec.ts
+index e38a9d1..11c39be 100644
+--- a/packages/lsp/lsp-stdio/tests/translate.spec.ts
++++ b/packages/lsp/lsp-stdio/tests/translate.spec.ts
+@@ -1,22 +1,47 @@
+ import { describe, expect, it } from 'vitest'
+ import {
+   negotiatePositionEncoding,
++  normalizeCompletionItems,
++  normalizeDiagnostics,
++  normalizeEdits,
+   normalizeHover,
+   normalizeLocations,
+   requestMethod,
+   supportsOperation,
++  supportsPullDiagnostics,
+   supportsTransientOpen,
+ } from '@deepseek-ai/dsh-lsp-stdio'
++import type { LspProviderQuery } from '@deepseek-ai/dsh-lsp'
+ import type { WireServerCapabilities } from '@deepseek-ai/dsh-lsp-stdio/src/protocol.ts'
+ 
+ const RANGE = { start: { line: 1, character: 2 }, end: { line: 1, character: 5 } }
+ 
++/** Build a provider query of the requested operation, narrowing the request union on the operation. */
++function providerQuery(operation: LspProviderQuery['operation'], range?: typeof RANGE): LspProviderQuery {
++  const base = { filePath: 'a.ts', workspaceRoot: '/ws', languageId: 'typescript' }
++  if (operation === 'diagnostics') return { operation, ...base }
++  if (operation === 'formatDocument') {
++    return range === undefined ? { operation, ...base } : { operation, ...base, range }
++  }
++  return { operation, position: { line: 0, character: 0 }, ...base }
++}
++
+ describe('requestMethod', () => {
+-  it('maps each operation to its textDocument request', () => {
+-    expect(requestMethod('goToDefinition')).toBe('textDocument/definition')
+-    expect(requestMethod('findReferences')).toBe('textDocument/references')
+-    expect(requestMethod('goToImplementation')).toBe('textDocument/implementation')
+-    expect(requestMethod('hover')).toBe('textDocument/hover')
++  it('maps each navigation operation to its textDocument request', () => {
++    expect(requestMethod(providerQuery('goToDefinition'))).toBe('textDocument/definition')
++    expect(requestMethod(providerQuery('findReferences'))).toBe('textDocument/references')
++    expect(requestMethod(providerQuery('goToImplementation'))).toBe('textDocument/implementation')
++    expect(requestMethod(providerQuery('hover'))).toBe('textDocument/hover')
++  })
++
++  it('maps completion, diagnostics, and formatting', () => {
++    expect(requestMethod(providerQuery('completion'))).toBe('textDocument/completion')
++    expect(requestMethod(providerQuery('diagnostics'))).toBe('textDocument/diagnostic')
++    expect(requestMethod(providerQuery('formatDocument'))).toBe('textDocument/formatting')
++  })
++
++  it('selects rangeFormatting when the format request carries a range', () => {
++    expect(requestMethod(providerQuery('formatDocument', RANGE))).toBe('textDocument/rangeFormatting')
+   })
+ })
+ 
+@@ -27,10 +52,140 @@ describe('supportsOperation', () => {
+       referencesProvider: { workDoneProgress: true },
+       implementationProvider: false,
+     }
+-    expect(supportsOperation(caps, 'goToDefinition')).toBe(true)
+-    expect(supportsOperation(caps, 'findReferences')).toBe(true)
+-    expect(supportsOperation(caps, 'goToImplementation')).toBe(false)
+-    expect(supportsOperation(caps, 'hover')).toBe(false)
++    expect(supportsOperation(caps, providerQuery('goToDefinition'))).toBe(true)
++    expect(supportsOperation(caps, providerQuery('findReferences'))).toBe(true)
++    expect(supportsOperation(caps, providerQuery('goToImplementation'))).toBe(false)
++    expect(supportsOperation(caps, providerQuery('hover'))).toBe(false)
++  })
++
++  it('reads completionProvider', () => {
++    expect(supportsOperation({ completionProvider: true }, providerQuery('completion'))).toBe(true)
++    expect(supportsOperation({}, providerQuery('completion'))).toBe(false)
++  })
++
++  it('reads formatting providers with and without a range', () => {
++    const caps: WireServerCapabilities = {
++      documentFormattingProvider: true,
++      documentRangeFormattingProvider: { workDoneProgress: true },
++    }
++    expect(supportsOperation(caps, providerQuery('formatDocument'))).toBe(true)
++    expect(supportsOperation(caps, providerQuery('formatDocument', RANGE))).toBe(true)
++    expect(supportsOperation({ documentFormattingProvider: true }, providerQuery('formatDocument', RANGE))).toBe(false)
++    expect(supportsOperation({ documentRangeFormattingProvider: true }, providerQuery('formatDocument'))).toBe(false)
++  })
++
++  it('supports diagnostics via pull or transient-open push', () => {
++    expect(supportsOperation({ diagnosticProvider: {} }, providerQuery('diagnostics'))).toBe(true)
++    expect(supportsOperation({ textDocumentSync: 1 }, providerQuery('diagnostics'))).toBe(true)
++    expect(supportsOperation({}, providerQuery('diagnostics'))).toBe(false)
++  })
++})
++
++describe('supportsPullDiagnostics', () => {
++  it('is true only when the server advertises diagnosticProvider', () => {
++    expect(supportsPullDiagnostics({ diagnosticProvider: {} })).toBe(true)
++    expect(supportsPullDiagnostics({ diagnosticProvider: false })).toBe(true)
++    expect(supportsPullDiagnostics({})).toBe(false)
++  })
++})
++
++describe('normalizeDiagnostics', () => {
++  it('returns empty for null and accepts an empty array', () => {
++    expect(normalizeDiagnostics(null)).toEqual([])
++    expect(normalizeDiagnostics([])).toEqual([])
++  })
++
++  it('normalizes severity, defaults missing severity to Error, and keeps source/code', () => {
++    const diagnostic = { range: RANGE, message: 'a problem', source: 'ts', code: 2304 }
++    expect(normalizeDiagnostics([diagnostic])).toEqual([{ severity: 1, ...diagnostic }])
++    expect(normalizeDiagnostics([{ range: RANGE, message: 'x', severity: 3, code: 'E1' }]))
++      .toEqual([{ severity: 3, range: RANGE, message: 'x', code: 'E1' }])
++  })
++
++  it('accepts an empty message but rejects a missing or non-string message', () => {
++    expect(normalizeDiagnostics([{ range: RANGE, message: '' }])).toEqual([{ severity: 1, range: RANGE, message: '' }])
++    expect(() => normalizeDiagnostics([{ range: RANGE }])).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
++    expect(() => normalizeDiagnostics([{ range: RANGE, message: 42 }])).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
++  })
++
++  it('rejects a non-array payload and non-object entries', () => {
++    expect(() => normalizeDiagnostics('nope')).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
++    expect(() => normalizeDiagnostics([42])).toThrow(/non-object/)
++  })
++
++  it('rejects a missing diagnostics result', () => {
++    expect(() => normalizeDiagnostics(undefined)).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
++  })
++
++  it('rejects malformed ranges and out-of-range severities', () => {
++    expect(() => normalizeDiagnostics([{ range: 'nope', message: 'x' }])).toThrow(/malformed range/)
++    expect(() => normalizeDiagnostics([{ range: RANGE, message: 'x', severity: 5 }])).toThrow(/severity/)
++    expect(() => normalizeDiagnostics([{ range: RANGE, message: 'x', severity: 1.5 }])).toThrow(/severity/)
++  })
++
++  it('rejects a non-string source and a non-string/number code', () => {
++    expect(() => normalizeDiagnostics([{ range: RANGE, message: 'x', source: 42 }])).toThrow(/source/)
++    expect(() => normalizeDiagnostics([{ range: RANGE, message: 'x', code: true }])).toThrow(/code/)
++  })
++})
++
++describe('normalizeEdits', () => {
++  it('returns empty for null and normalizes a TextEdit', () => {
++    expect(normalizeEdits(null)).toEqual([])
++    expect(normalizeEdits([{ range: RANGE, newText: 'replacement' }])).toEqual([{ range: RANGE, newText: 'replacement' }])
++  })
++
++  it('accepts an empty newText', () => {
++    expect(normalizeEdits([{ range: RANGE, newText: '' }])).toEqual([{ range: RANGE, newText: '' }])
++  })
++
++  it('rejects a missing formatting result', () => {
++    expect(() => normalizeEdits(undefined)).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
++  })
++
++  it('rejects non-array, non-object entries, and malformed fields', () => {
++    expect(() => normalizeEdits({})).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
++    expect(() => normalizeEdits([null])).toThrow(/non-object/)
++    expect(() => normalizeEdits([{ range: RANGE }])).toThrow(/newText/)
++    expect(() => normalizeEdits([{ range: 'nope', newText: 'x' }])).toThrow(/malformed range/)
++  })
++})
++
++describe('normalizeCompletionItems', () => {
++  it('returns empty for null, an array, and a CompletionList', () => {
++    expect(normalizeCompletionItems(null)).toEqual([])
++    expect(normalizeCompletionItems([{ label: 'a' }])).toEqual([{ label: 'a' }])
++    expect(normalizeCompletionItems({ isIncomplete: false, items: [{ label: 'a' }] })).toEqual([{ label: 'a' }])
++  })
++
++  it('normalizes optional fields including a textEdit', () => {
++    const item = { label: 'fn', kind: 3, detail: 'fn()', insertText: 'fn', sortText: '0', textEdit: { range: RANGE, newText: 'fn' } }
++    expect(normalizeCompletionItems([item])).toEqual([item])
++  })
++
++  it('rejects a missing label and malformed optional fields', () => {
++    expect(() => normalizeCompletionItems([{ detail: 'x' }])).toThrow(/label/)
++    expect(() => normalizeCompletionItems([{ label: 'x', kind: 'not-int' }])).toThrow(/kind/)
++    expect(() => normalizeCompletionItems([{ label: 'x', detail: 1 }])).toThrow(/detail/)
++    expect(() => normalizeCompletionItems([{ label: 'x', insertText: 1 }])).toThrow(/insertText/)
++    expect(() => normalizeCompletionItems([{ label: 'x', sortText: 1 }])).toThrow(/sortText/)
++    expect(() => normalizeCompletionItems([{ label: 'x', textEdit: { range: 'nope', newText: 'x' } }])).toThrow(/textEdit/)
++    expect(() => normalizeCompletionItems([{ label: 'x', textEdit: { range: RANGE, newText: 1 } }])).toThrow(/textEdit/)
++  })
++
++  it('rejects a missing completion result and a non-array/non-CompletionList payload', () => {
++    expect(() => normalizeCompletionItems(undefined)).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
++    expect(() => normalizeCompletionItems(42)).toThrow(/not an array or CompletionList/)
++  })
++
++  it('rejects a non-object completion entry and a null textEdit', () => {
++    expect(() => normalizeCompletionItems([null])).toThrow(/non-object/)
++    expect(() => normalizeCompletionItems([{ label: 'x', textEdit: null }])).toThrow(/textEdit/)
++  })
++
++  it('rejects a CompletionList whose items are missing or not an array', () => {
++    expect(() => normalizeCompletionItems({ isIncomplete: true })).toThrow(expect.objectContaining({ code: 'LSP_MALFORMED_RESPONSE' }))
++    expect(() => normalizeCompletionItems({ items: 'nope' })).toThrow(/items/)
+   })
+ })
+ 
+diff --git a/packages/lsp/lsp/README.i18n.yaml b/packages/lsp/lsp/README.i18n.yaml
+index 1beb022..78bd649 100644
+--- a/packages/lsp/lsp/README.i18n.yaml
++++ b/packages/lsp/lsp/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/lsp/lsp/README.md
+-README.md: cf32f9cc60a346def48d9720bf0695db36553b0e
+-README.zh.md: 6f19d1f649eb1483782b6ebb4c82f05da7a42a80
++README.md: 3a01a02a144e86776d42278c3d2b68bc46937017
++README.zh.md: 61c4d4f029836e5c6b4c77359fb139e4c1f16f30
+diff --git a/packages/lsp/lsp/README.md b/packages/lsp/lsp/README.md
+index cf32f9c..3a01a02 100644
+--- a/packages/lsp/lsp/README.md
++++ b/packages/lsp/lsp/README.md
+@@ -2,7 +2,7 @@
+ 
+ English | [中文](README.zh.md)
+ 
+-The **LSP capability seam**: an abstract `LspService` (`ctx.lsp`) defining WHAT semantic code navigation the harness has — go to definition, find references, find implementations, hover — over language-server providers, without binding the model contract to local subprocesses.
++The **LSP capability seam**: an abstract `LspService` (`ctx.lsp`) defining WHAT semantic code queries the harness has — go to definition, find references, find implementations, hover, diagnostics, formatting, and completion — over language-server providers, without binding the model contract to local subprocesses.
+ 
+ This package owns the Service Definition role of the LSP capability:
+ 
+@@ -12,7 +12,7 @@ This package owns the Service Definition role of the LSP capability:
+ | `@deepseek-ai/dsh-lsp-stdio` | Service Provider: a generic local backend that registers configured stdio language-server providers |
+ | `@deepseek-ai/dsh-tool-lsp` | Consumer: the model-facing `lsp` tool over `ctx.lsp` |
+ 
+-The seam exposes exactly four semantic operations — `goToDefinition`, `findReferences`, `goToImplementation`, `hover` — and no generic JSON-RPC escape hatch, so no protocol payload or unreviewed command/mutation reaches a provider through `ctx.lsp`.
++The seam exposes exactly seven semantic operations — `goToDefinition`, `findReferences`, `goToImplementation`, `hover`, `diagnostics`, `formatDocument`, `completion` — and no generic JSON-RPC escape hatch, so no protocol payload or unreviewed command/mutation reaches a provider through `ctx.lsp`. `formatDocument` returns edits the host never applies; a consumer applies them through `ctx.fs`.
+ 
+ ## Service API (`ctx.lsp`)
+ 
+@@ -27,7 +27,7 @@ Providers register **capabilities**, not tools. `dsh-tool-lsp` is the only owner
+ 
+ ## Vocabulary
+ 
+-`LspQueryRequest` (`operation`, `filePath`, `position`, `workspaceRoot`) — every field required, so no field needs implementation defaulting and there is no `resolve()` step. Positions and ranges are zero-based UTF-16, matching the protocol; the tool owns the one-based cursor convention. `findReferences` always includes declarations — providers enforce this internally, so callers get no flag. `LspQueryResult` is a CLOSED discriminated union: `{ kind: 'locations'; locations; resolvedWorkspaceUri }` for navigation, `{ kind: 'hover'; hover }` for hover (content or `null`) — consumers `switch` to exhaustiveness so a new arm breaks compilation until handled. `resolvedWorkspaceUri` is the provider's canonical workspace `file:` URI; callers relativize location URIs against it instead of applying host-platform path rules to the possibly symlinked request root. See `src/types.ts` for the full contracts and `src/index.ts` for the `LspError` codes, including `LSP_DISPOSED` and `LSP_MALFORMED_RESPONSE`.
++`LspQueryRequest` is a CLOSED union over three request shapes: position-based (`operation`, `filePath`, `position`, `workspaceRoot`), position-less diagnostics (`operation`, `filePath`, `workspaceRoot`), and optional-range formatting (`operation`, `filePath`, optional `range`, `workspaceRoot`). `workspaceRoot` is always caller-supplied and `languageId` comes from the provider registration, so no field needs implementation defaulting and there is no `resolve()` step. Positions and ranges are zero-based UTF-16, matching the protocol; the tool owns the one-based cursor convention. `findReferences` always includes declarations — providers enforce this internally, so callers get no flag. `LspQueryResult` is a CLOSED discriminated union of five kinds: `{ kind: 'locations'; locations; resolvedWorkspaceUri }` for navigation, `{ kind: 'hover'; hover }` for hover (content or `null`), `{ kind: 'diagnostics'; diagnostics; resolvedWorkspaceUri }`, `{ kind: 'edits'; edits; resolvedWorkspaceUri }` for formatting, and `{ kind: 'completion'; items }` — consumers `switch` to exhaustiveness so a new arm breaks compilation until handled. `resolvedWorkspaceUri` is the provider's canonical workspace `file:` URI; callers relativize location URIs against it instead of applying host-platform path rules to the possibly symlinked request root. See `src/types.ts` for the full contracts and `src/index.ts` for the `LspError` codes, including `LSP_DISPOSED` and `LSP_MALFORMED_RESPONSE`.
+ 
+ ## Model Experience
+ 
+@@ -40,5 +40,5 @@ No direct invalidation; `dsh-tool-lsp` owns request-prefix changes.
+ ## Known Limitations and Deferred Work
+ 
+ - **Exclusive extension ownership within one runtime** — two providers cannot both claim `.ts`, even with different language ids; overlaps fail registration. The intended extension is a deployment-configured selector above registrations, which can relax exclusive reservation without adding provider choice to model input ([seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)).
+-- **Four operations only** — symbols and call hierarchy are deferred (they need different schemas); diagnostics need separate freshness/accumulation rules; mutations (rename, code actions, formatting) require separate tools with preview, permission, and write-policy integration.
++- **Seven operations, no mutations** — symbols and call hierarchy are deferred (they need different schemas); diagnostics return a snapshot with no freshness/accumulation subscription; formatting returns edits the host never applies, and rename/code actions remain deferred (they need separate tools with preview, permission, and write-policy integration).
+ - **No observation API** — availability is observed only by running `query()` and routing the thrown `LspError` codes; there is no provider-change event or capability-status query.
+diff --git a/packages/lsp/lsp/README.zh.md b/packages/lsp/lsp/README.zh.md
+index 6f19d1f..61c4d4f 100644
+--- a/packages/lsp/lsp/README.zh.md
++++ b/packages/lsp/lsp/README.zh.md
+@@ -2,7 +2,7 @@
+ 
+ [English](README.md) | 中文
+ 
+-**LSP 能力 seam**：抽象 `LspService`（`ctx.lsp`）定义 harness 具备哪些语义代码导航能力（转到定义、查找引用、查找实现、悬停），并通过语言服务器提供方实现，不把模型约定绑定到本地子进程。
++**LSP 能力 seam**：抽象 `LspService`（`ctx.lsp`）定义 harness 具备哪些语义代码查询能力（转到定义、查找引用、查找实现、悬停、诊断、格式化与补全），并通过语言服务器提供方实现，不把模型约定绑定到本地子进程。
+ 
+ 本包承担 LSP 能力的 Service Definition 角色：
+ 
+@@ -12,7 +12,7 @@
+ | `@deepseek-ai/dsh-lsp-stdio` | Service Provider：通用本地后端，注册已配置的 stdio 语言服务器提供方 |
+ | `@deepseek-ai/dsh-tool-lsp` | Consumer：面向模型的 `lsp` 工具，基于 `ctx.lsp` |
+ 
+-该 seam 恰好公开四种语义操作：`goToDefinition`、`findReferences`、`goToImplementation`、`hover`，且没有通用 JSON-RPC 逃生口，因此任何协议载荷或未经评审的命令／修改都无法通过 `ctx.lsp` 到达提供方。
++该 seam 恰好公开七种语义操作：`goToDefinition`、`findReferences`、`goToImplementation`、`hover`、`diagnostics`、`formatDocument`、`completion`，且没有通用 JSON-RPC 逃生口，因此任何协议载荷或未经评审的命令／修改都无法通过 `ctx.lsp` 到达提供方。`formatDocument` 返回主机绝不应用的编辑，消费方通过 `ctx.fs` 应用它们。
+ 
+ ## 服务 API（`ctx.lsp`）
+ 
+@@ -27,7 +27,7 @@
+ 
+ ## 词汇
+ 
+-`LspQueryRequest`（`operation`、`filePath`、`position`、`workspaceRoot`）：每个字段都必填，因此没有字段需要实现默认值，也不存在 `resolve()` 步骤。位置与范围使用从零开始的 UTF-16，与协议一致；工具拥有从 1 开始的光标约定。`findReferences` 始终包含声明，提供方在内部强制执行，因此调用方没有 flag。`LspQueryResult` 是封闭的判别联合：导航使用 `{ kind: 'locations'; locations; resolvedWorkspaceUri }`，悬停使用 `{ kind: 'hover'; hover }`（内容或 `null`）；消费方通过 `switch` 实现穷尽检查，因此新增分支会使编译失败，直到完成处理。`resolvedWorkspaceUri` 是提供方的规范工作区 `file:` URI；调用方相对化位置 URI 时以它为基准，而不是对可能含符号链接的请求根应用宿主平台路径规则。完整约定见 `src/types.ts`；`src/index.ts` 给出 `LspError` code，包括 `LSP_DISPOSED` 和 `LSP_MALFORMED_RESPONSE`。
++`LspQueryRequest` 是三种请求形状的封闭联合：基于位置（`operation`、`filePath`、`position`、`workspaceRoot`）、无位置的诊断（`operation`、`filePath`、`workspaceRoot`）与可选范围的格式化（`operation`、`filePath`、可选 `range`、`workspaceRoot`）。`workspaceRoot` 始终由调用方提供，`languageId` 来自提供方注册，因此没有字段需要实现默认值，也不存在 `resolve()` 步骤。位置与范围使用从零开始的 UTF-16，与协议一致；工具拥有从 1 开始的光标约定。`findReferences` 始终包含声明，提供方在内部强制执行，因此调用方没有 flag。`LspQueryResult` 是五种分支的封闭判别联合：导航使用 `{ kind: 'locations'; locations; resolvedWorkspaceUri }`，悬停使用 `{ kind: 'hover'; hover }`（内容或 `null`），诊断使用 `{ kind: 'diagnostics'; diagnostics; resolvedWorkspaceUri }`，格式化使用 `{ kind: 'edits'; edits; resolvedWorkspaceUri }`，补全使用 `{ kind: 'completion'; items }`；消费方通过 `switch` 实现穷尽检查，因此新增分支会使编译失败，直到完成处理。`resolvedWorkspaceUri` 是提供方的规范工作区 `file:` URI；调用方相对化位置 URI 时以它为基准，而不是对可能含符号链接的请求根应用宿主平台路径规则。完整约定见 `src/types.ts`；`src/index.ts` 给出 `LspError` code，包括 `LSP_DISPOSED` 和 `LSP_MALFORMED_RESPONSE`。
+ 
+ ## 模型体验
+ 
+@@ -40,5 +40,5 @@
+ ## 已知限制与暂缓事项
+ 
+ - **同一运行时内扩展名归属互斥**：两个提供方不能同时声明 `.ts`，即使 language id 不同；重叠会使注册失败。预期扩展是在注册之上增加部署配置的 selector；它可以放宽互斥保留，而无需把提供方选择加入模型输入（见 [seam Agent Note](../../../.agents/notes/implemented/architecture/2026-07-15-lsp-capability-seam.md)）。
+-- **仅四种操作**：symbol 与 call hierarchy 暂缓（它们需要不同 schema）；diagnostics 需要独立的新鲜度／累积规则；修改操作（rename、code action、formatting）需要独立工具，并集成预览、权限和写入策略。
++- **七种操作、不含修改**：symbol 与 call hierarchy 暂缓（它们需要不同 schema）；diagnostics 返回快照，不含新鲜度／累积订阅；formatting 返回主机绝不应用的编辑，rename／code action 仍暂缓（它们需要独立工具，并集成预览、权限和写入策略）。
+ - **没有观测表层**：可用性只能通过运行 `query()` 并按抛出的 `LspError` code 路由来观测；没有提供方变更事件或能力状态查询。
+diff --git a/packages/lsp/lsp/src/index.ts b/packages/lsp/lsp/src/index.ts
+index 05e2cd3..bfd1e51 100644
+--- a/packages/lsp/lsp/src/index.ts
++++ b/packages/lsp/lsp/src/index.ts
+@@ -1,13 +1,13 @@
+ /**
+  * Service Definition for the LSP capability seam (`ctx.lsp`): a language-server provider registry and per-query,
+  * order-independent selection over normalized goToDefinition/findReferences/goToImplementation/
+- * hover queries.
++ * hover/diagnostics/formatDocument/completion queries.
+  *
+  * A provider reserves a branded id and an exclusive set of file extensions atomically:
+  * {@link Lsp.registerProvider} validates and conflict-checks everything before mutating, so an
+  * invalid or conflicting registration publishes nothing, and its disposer releases every
+  * reservation together. Selection routes a query by the file's final extension; it never depends on
+- * registration order. The seam exposes exactly the four operations and no JSON-RPC escape hatch.
++ * registration order. The seam exposes exactly the seven operations and no JSON-RPC escape hatch.
+  * @module @deepseek-ai/dsh-lsp
+  */
+ 
+@@ -23,16 +23,24 @@ import type {
+ 
+ export { LspProviderId } from './brand.ts'
+ export type {
++  LspCompletionItem,
++  LspDiagnostic,
++  LspDiagnosticsRequest,
++  LspDiagnosticSeverity,
++  LspFormatRequest,
+   LspHover,
+   LspLocation,
+   LspOperation,
+   LspPosition,
++  LspPositionOperation,
++  LspPositionRequest,
+   LspProvider,
+   LspProviderQuery,
+   LspQueryRequest,
+   LspQueryResult,
+   LspRange,
+   LspService,
++  LspTextEdit,
+ } from './types.ts'
+ 
+ declare module '@deepseek-ai/cordis' {
+diff --git a/packages/lsp/lsp/src/types.ts b/packages/lsp/lsp/src/types.ts
+index 2e61d01..f87ea51 100644
+--- a/packages/lsp/lsp/src/types.ts
++++ b/packages/lsp/lsp/src/types.ts
+@@ -3,18 +3,23 @@
+  * {@link LspError} taxonomy and the {@link LspProviderId} brand factory are runtime and live in
+  * `index.ts`. Positions and ranges are zero-based UTF-16, matching the protocol; the model-facing
+  * tool owns the one-based cursor convention. The seam exposes no protocol types, process or document
+- * controls, or generic JSON-RPC escape hatch — only the four semantic operations.
++ * controls, or generic JSON-RPC escape hatch — only the seven semantic operations.
+  * @module @deepseek-ai/dsh-lsp/types
+  */
+ 
+ import type { LspProviderId } from './brand.ts'
+ 
+ /**
+- * The four semantic queries the seam and model expose. A closed union: adding an operation is a
++ * The seven semantic operations the seam exposes. A closed union: adding an operation is a
+  * compile-enforced change across the seam, providers, and the tool. Symbols and call hierarchy are
+  * not operations here; they need different schemas.
+  */
+-export type LspOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
++export type LspOperation =
++  | 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover'
++  | 'diagnostics' | 'formatDocument' | 'completion'
++
++/** The position-based operations, which carry a zero-based `position` in their request. */
++export type LspPositionOperation = 'goToDefinition' | 'findReferences' | 'goToImplementation' | 'hover' | 'completion'
+ 
+ /** A zero-based UTF-16 cursor coordinate, matching the LSP wire convention. */
+ export interface LspPosition {
+@@ -30,31 +35,43 @@ export interface LspRange {
+   readonly end: LspPosition
+ }
+ 
+-/**
+- * A caller's normalized query. Every field is required: `workspaceRoot` is caller-supplied,
+- * `languageId` comes from the provider registration (not here), and consumers own timeouts and
+- * result limits — so no field needs implementation defaulting and there is no `resolve()` step.
+- */
+-export interface LspQueryRequest {
+-  /** Which semantic query to run. */
+-  readonly operation: LspOperation
+-  /** The source file to query (relative to `workspaceRoot` or absolute; the provider canonicalizes). */
++/** A position-based request: a cursor coordinate plus the source file and workspace root. */
++export interface LspPositionRequest {
++  readonly operation: LspPositionOperation
+   readonly filePath: string
+-  /** The zero-based UTF-16 cursor position to query at. */
+   readonly position: LspPosition
+-  /** The workspace root the provider resolves against and indexes; required, never defaulted. */
++  readonly workspaceRoot: string
++}
++
++/** A file-scoped diagnostics request: the source file and workspace root, with no cursor. */
++export interface LspDiagnosticsRequest {
++  readonly operation: 'diagnostics'
++  readonly filePath: string
++  readonly workspaceRoot: string
++}
++
++/** A formatting request: the source file, workspace root, and an optional range. */
++export interface LspFormatRequest {
++  readonly operation: 'formatDocument'
++  readonly filePath: string
++  readonly range?: LspRange
+   readonly workspaceRoot: string
+ }
+ 
++/**
++ * A caller's normalized query: a closed union over position-based, position-less, and optional-range
++ * requests. `workspaceRoot` is always caller-supplied, `languageId` comes from the provider
++ * registration (not here), and consumers own timeouts and result limits — so no field needs
++ * implementation defaulting and there is no `resolve()` step.
++ */
++export type LspQueryRequest = LspPositionRequest | LspDiagnosticsRequest | LspFormatRequest
++
+ /**
+  * A request as a provider receives it: the caller's {@link LspQueryRequest} plus the `languageId`
+  * the seam derived from the provider's extension mapping. The language id only synchronizes the
+  * transient document; it does not participate in selection.
+  */
+-export interface LspProviderQuery extends LspQueryRequest {
+-  /** The LSP language id for `filePath`, from this provider's extension mapping. */
+-  readonly languageId: string
+-}
++export type LspProviderQuery = LspQueryRequest & { readonly languageId: string }
+ 
+ /** One resolved location: a document URI and the range within it. */
+ export interface LspLocation {
+@@ -72,19 +89,52 @@ export interface LspHover {
+   readonly range?: LspRange
+ }
+ 
++/** The four LSP diagnostic severities: `1` Error, `2` Warning, `3` Information, `4` Hint. */
++export type LspDiagnosticSeverity = 1 | 2 | 3 | 4
++
++/** One normalized diagnostic: a severity, a range, a message, and optional source and code. */
++export interface LspDiagnostic {
++  readonly severity: LspDiagnosticSeverity
++  readonly range: LspRange
++  readonly message: string
++  readonly source?: string
++  readonly code?: string | number
++}
++
++/** One normalized text edit: the range to replace and its replacement text. */
++export interface LspTextEdit {
++  readonly range: LspRange
++  readonly newText: string
++}
++
++/** One normalized completion item: a label plus optional kind, detail, and insertion text. */
++export interface LspCompletionItem {
++  readonly label: string
++  readonly kind?: number
++  readonly detail?: string
++  readonly insertText?: string
++  readonly textEdit?: LspTextEdit
++  readonly sortText?: string
++}
++
+ /**
+  * The closed result union. Navigation operations (`goToDefinition`, `findReferences`,
+- * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`.
+- * Consumers `switch` on `kind` to exhaustiveness so a new arm breaks compilation until handled.
++ * `goToImplementation`) normalize to `locations`; `hover` normalizes to content or `null`;
++ * `diagnostics` normalizes to a diagnostic list; `formatDocument` normalizes to `edits`;
++ * `completion` normalizes to `items`. Consumers `switch` on `kind` to exhaustiveness so a new arm
++ * breaks compilation until handled.
+  *
+- * The `locations` variant carries `resolvedWorkspaceUri`: the provider's canonical `file:` URI for
+- * the request's workspace root. A caller that relativizes location URIs MUST use this, not parse the
+- * request's possibly symlinked process path with host-platform rules; the execution platform may
+- * differ from the caller's.
++ * The `locations`, `diagnostics`, and `edits` variants carry `resolvedWorkspaceUri`: the provider's
++ * canonical `file:` URI for the request's workspace root. A caller that relativizes location URIs
++ * MUST use this, not parse the request's possibly symlinked process path with host-platform rules;
++ * the execution platform may differ from the caller's.
+  */
+ export type LspQueryResult =
+   | { readonly kind: 'locations'; readonly locations: readonly LspLocation[]; readonly resolvedWorkspaceUri: string }
+   | { readonly kind: 'hover'; readonly hover: LspHover | null }
++  | { readonly kind: 'diagnostics'; readonly diagnostics: readonly LspDiagnostic[]; readonly resolvedWorkspaceUri: string }
++  | { readonly kind: 'edits'; readonly edits: readonly LspTextEdit[]; readonly resolvedWorkspaceUri: string }
++  | { readonly kind: 'completion'; readonly items: readonly LspCompletionItem[] }
+ 
+ /**
+  * A language-server backend registered on `ctx.lsp`. Each provider owns a stable {@link
+@@ -108,7 +158,7 @@ export interface LspProvider {
+ 
+ /**
+  * The LSP capability seam (`ctx.lsp`). Owns provider registration/selection and normalized query
+- * execution; exposes exactly the four operations and no protocol escape hatch.
++ * execution; exposes exactly the seven operations and no protocol escape hatch.
+  */
+ export interface LspService {
+   /**
+diff --git a/packages/lsp/tool-lsp/README.i18n.yaml b/packages/lsp/tool-lsp/README.i18n.yaml
+index 2eb5cb2..5b1174e 100644
+--- a/packages/lsp/tool-lsp/README.i18n.yaml
++++ b/packages/lsp/tool-lsp/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/lsp/tool-lsp/README.md
+-README.md: e0fd5738cf114314a8483125d20142d5f1ffac40
+-README.zh.md: 8c908c1e8766ab47e9cefbc9d1f72f05e8c2709f
++README.md: d4b558a42297258a0666e08023fdc631fb19cabb
++README.zh.md: fec8d44120ca96dbeb5a40d4e2bda480ca503da3
+diff --git a/packages/lsp/tool-lsp/README.md b/packages/lsp/tool-lsp/README.md
+index e0fd573..d4b558a 100644
+--- a/packages/lsp/tool-lsp/README.md
++++ b/packages/lsp/tool-lsp/README.md
+@@ -10,7 +10,7 @@ Namespace plugin (`name` / `inject` / `Config` / `apply`, no default export). In
+ 
+ `lsp` accepts `operation` (`goToDefinition` | `findReferences` | `goToImplementation` | `hover`), `file_path`, `line`, and `character`. `line` and `character` are positive, one-based UTF-16 cursor coordinates; the tool converts them to the seam's zero-based positions and converts rendered locations back. `findReferences` includes declarations so impact analysis does not omit the defining site. Provider, language id, workspace root, limits, timeout, initialization, and executable stay outside model input.
+ 
+-The tool requires the workspace root from the session `header.cwd`, with no fallback: absence fails as `LSP_WORKSPACE_REQUIRED` before querying. Its canonical result is the complete normalized Service Definition union: `{ kind: "locations", locations, resolvedWorkspaceUri }` or `{ kind: "hover", hover }`; Code Mode can inspect every acquired location and zero-based range directly. Native rendering projects stable, file-grouped `path:line:character` entries against the provider's canonical workspace URI rather than applying host-platform path rules to the session cwd. A `file:` URI becomes a workspace-relative path inside that URI or a URI-derived absolute path outside it; malformed and non-`file:` URIs stay verbatim. Empty locations and `null` hover are successful no-result responses; malformed provider payloads remain structured errors.
++The tool requires the workspace root from the session `header.cwd`, with no fallback: absence fails as `LSP_WORKSPACE_REQUIRED` before querying. Its canonical result is the `locations`/`hover` arm of the normalized Service Definition union — `{ kind: "locations", locations, resolvedWorkspaceUri }` or `{ kind: "hover", hover }` — because the tool never requests the seam's `diagnostics`, `formatDocument`, or `completion` operations (the action tools live in a separate plugin); Code Mode can inspect every acquired location and zero-based range directly. Native rendering projects stable, file-grouped `path:line:character` entries against the provider's canonical workspace URI rather than applying host-platform path rules to the session cwd. A `file:` URI becomes a workspace-relative path inside that URI or a URI-derived absolute path outside it; malformed and non-`file:` URIs stay verbatim. Empty locations and `null` hover are successful no-result responses; malformed provider payloads remain structured errors.
+ 
+ ## Configuration
+ 
+diff --git a/packages/lsp/tool-lsp/README.zh.md b/packages/lsp/tool-lsp/README.zh.md
+index 8c908c1..fec8d44 100644
+--- a/packages/lsp/tool-lsp/README.zh.md
++++ b/packages/lsp/tool-lsp/README.zh.md
+@@ -10,7 +10,7 @@ Namespace 插件（`name`／`inject`／`Config`／`apply`，无默认导出）
+ 
+ `lsp` 接受 `operation`（`goToDefinition` | `findReferences` | `goToImplementation` | `hover`）、`file_path`、`line` 和 `character`。`line` 与 `character` 是正的、从 1 开始的 UTF-16 光标坐标；工具将其转换为 seam 从零开始的位置，并把渲染位置转换回来。`findReferences` 包含声明，因此影响分析不会遗漏定义位置。提供方、language id、工作区根目录、限制、超时、初始化和可执行文件均不进入模型输入。
+ 
+-该工具要求从会话 `header.cwd` 取得工作区根目录，没有回退值：缺失时会在查询前以 `LSP_WORKSPACE_REQUIRED` 失败。其规范结果是完整的已规范化 Service Definition 联合类型：`{ kind: "locations", locations, resolvedWorkspaceUri }` 或 `{ kind: "hover", hover }`；Code Mode 可以直接检查每个已取得的位置和从零开始的范围。原生渲染以提供方的规范工作区 URI 为基准，投影按文件稳定分组的 `path:line:character` 条目，而不对会话 cwd 应用宿主平台路径规则。`file:` URI 落在该工作区 URI 内时成为工作区相对路径，位于其外时成为从 URI 派生的绝对路径；格式错误的 URI 与非 `file:` URI 保持原样。空位置和 `null` hover 都是成功的无结果响应；格式错误的提供方载荷仍是结构化错误。
++该工具要求从会话 `header.cwd` 取得工作区根目录，没有回退值：缺失时会在查询前以 `LSP_WORKSPACE_REQUIRED` 失败。其规范结果是已规范化 Service Definition 联合类型的 `locations`／`hover` 分支——`{ kind: "locations", locations, resolvedWorkspaceUri }` 或 `{ kind: "hover", hover }`——因为该工具从不请求 seam 的 `diagnostics`、`formatDocument` 或 `completion` 操作（action 工具位于单独的插件）；Code Mode 可以直接检查每个已取得的位置和从零开始的范围。原生渲染以提供方的规范工作区 URI 为基准，投影按文件稳定分组的 `path:line:character` 条目，而不对会话 cwd 应用宿主平台路径规则。`file:` URI 落在该工作区 URI 内时成为工作区相对路径，位于其外时成为从 URI 派生的绝对路径；格式错误的 URI 与非 `file:` URI 保持原样。空位置和 `null` hover 都是成功的无结果响应；格式错误的提供方载荷仍是结构化错误。
+ 
+ ## 配置
+ 
+diff --git a/packages/lsp/tool-lsp/src/index.ts b/packages/lsp/tool-lsp/src/index.ts
+index f2461a7..2fb1aed 100644
+--- a/packages/lsp/tool-lsp/src/index.ts
++++ b/packages/lsp/tool-lsp/src/index.ts
+@@ -219,9 +219,9 @@ export function apply(ctx: Context, config: Config): void {
+                   },
+               },
+           }
+-        /* v8 ignore next -- exhaustive over the closed LspQueryResult union; unreachable. */
++        /* v8 ignore next -- the tool never requests diagnostics/formatDocument/completion; the action tools live in a separate plugin. */
+         default:
+-          return assertNever(result, 'tool-lsp result')
++          throw new Error(`tool-lsp received an unexpected ${result.kind} result`)
+       }
+     },
+     presentCall: presentLspCall,
+diff --git a/scripts/gen-doc-graphs.ts b/scripts/gen-doc-graphs.ts
+index 0ee6ae5..074e08f 100644
+--- a/scripts/gen-doc-graphs.ts
++++ b/scripts/gen-doc-graphs.ts
+@@ -537,7 +537,7 @@ const SERVICE_ROLES: ServiceRole[] = [
+     mode: 'seam',
+     implementations: ['lsp-local'],
+     consumers: ['tool-lsp'],
+-    note: 'Provider registration and selection plus normalized query execution over exactly four operations; the seam offers no protocol escape hatch, so a backend translates into the normalized request and result.',
++    note: 'Provider registration and selection plus normalized query execution over exactly seven operations; the seam offers no protocol escape hatch, so a backend translates into the normalized request and result.',
+   },
+   {
+     key: 'apiProxy',
+diff --git a/scripts/type-equiv.manifest.json b/scripts/type-equiv.manifest.json
+index 5e6184b..4db90a8 100644
+--- a/scripts/type-equiv.manifest.json
++++ b/scripts/type-equiv.manifest.json
+@@ -1435,6 +1435,46 @@
+       "symbol": "LspService",
+       "source": "packages/lsp/lsp/src/types.ts"
+     },
++    {
++      "doc": "docs/subsystems/lsp.md",
++      "symbol": "LspPositionOperation",
++      "source": "packages/lsp/lsp/src/types.ts"
++    },
++    {
++      "doc": "docs/subsystems/lsp.md",
++      "symbol": "LspPositionRequest",
++      "source": "packages/lsp/lsp/src/types.ts"
++    },
++    {
++      "doc": "docs/subsystems/lsp.md",
++      "symbol": "LspDiagnosticsRequest",
++      "source": "packages/lsp/lsp/src/types.ts"
++    },
++    {
++      "doc": "docs/subsystems/lsp.md",
++      "symbol": "LspFormatRequest",
++      "source": "packages/lsp/lsp/src/types.ts"
++    },
++    {
++      "doc": "docs/subsystems/lsp.md",
++      "symbol": "LspDiagnosticSeverity",
++      "source": "packages/lsp/lsp/src/types.ts"
++    },
++    {
++      "doc": "docs/subsystems/lsp.md",
++      "symbol": "LspDiagnostic",
++      "source": "packages/lsp/lsp/src/types.ts"
++    },
++    {
++      "doc": "docs/subsystems/lsp.md",
++      "symbol": "LspTextEdit",
++      "source": "packages/lsp/lsp/src/types.ts"
++    },
++    {
++      "doc": "docs/subsystems/lsp.md",
++      "symbol": "LspCompletionItem",
++      "source": "packages/lsp/lsp/src/types.ts"
++    },
+     {
+       "doc": "docs/subsystems/persistence.md",
+       "symbol": "SessionPersistenceRevision",
+-- 
+2.54.0.windows.1
+
