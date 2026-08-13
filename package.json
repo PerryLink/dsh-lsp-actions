@@ -1,0 +1,71 @@
+{
+  "name": "dsh-lsp-actions",
+  "version": "0.1.0",
+  "description": "LSP action surface for DeepSeek Harness: lsp_diagnostics, lsp_format, and lsp_completion tools over language servers",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./lib/index.js",
+      "types": "./lib/index.d.ts"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "README.es.md",
+    "README.hi.md",
+    "README.pt.md",
+    "README.zh-CN.md"
+  ],
+  "scripts": {
+    "build": "tsc --noEmitOnError",
+    "prepare": "tsc --noEmitOnError",
+    "prepublishOnly": "tsc --noEmitOnError",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "lsp",
+    "language-server",
+    "diagnostics",
+    "formatting",
+    "completion"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-fs": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-sandbox": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-subprocess": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-lsp": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-sandbox-policy": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-timeout": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-user-approval": "0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.0.0",
+    "@types/node": "^26.2.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

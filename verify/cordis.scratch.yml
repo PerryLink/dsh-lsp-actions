@@ -1,0 +1,17 @@
+# Local verification overlay: mounts the built plugin from this checkout.
+# Run: pnpm dsh --dump-config --patch ./verify/cordis.scratch.yml
+- insert:
+    - id: lsp-actions
+      name: 'D:/deepseek-harness/Project/Plugins/dsh-lsp-actions/lib/index.js'
+      inject: [tools, fs, subprocess]
+      config:
+        servers:
+          fixture:
+            command: node
+            args: [D:/deepseek-harness/Project/Plugins/dsh-lsp-actions/tests/fixtures/lsp-fixture-server.mjs]
+            extensionToLanguage:
+              ".ts": typescript
+        maxDiagnostics: 200
+        maxCompletionItems: 20
+        maxResultChars: 16000
+        timeoutMs: 60000

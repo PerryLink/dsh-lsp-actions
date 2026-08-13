@@ -1,0 +1,12 @@
+# LSP action surface: diagnostics, formatting, and completion tools over language servers.
+# Default config activates no servers (empty table); add one entry per language server.
+- insert:
+    - id: lsp-actions
+      name: dsh-lsp-actions
+      inject: [tools, fs, subprocess]
+      config:
+        servers: {}
+        maxDiagnostics: 200
+        maxCompletionItems: 20
+        maxResultChars: 16000
+        timeoutMs: 60000
