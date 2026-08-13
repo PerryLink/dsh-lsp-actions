@@ -3,4 +3,3 @@ lib/
 *.tsbuildinfo
 coverage/
 .tgz
-pnpm-workspace.yaml
