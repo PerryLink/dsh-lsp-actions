@@ -27,9 +27,15 @@ const edit = (line: number, oldText: string, newText: string): LspTextEdit => ({
 function fakeRunner(results: {
   diagnostics?: { kind: 'diagnostics'; diagnostics: LspDiagnostic[] }
   formatDocument?: { kind: 'edits'; edits: LspTextEdit[] }
-  completion?: { kind: 'completion'; items: { label: string; detail?: string }[] }
+  completion?: {
+    kind: 'completion'
+    items: { label: string; detail?: string; insertText?: string; textEdit?: LspTextEdit }[]
+  }
 }): { runner: ActionRunner; calls: RunnerRequest[] } {
   const calls: RunnerRequest[] = []
+  const unexpected = (): never => {
+    throw new Error('unexpected runner result')
+  }
   const runner: ActionRunner = {
     diagnostics: async (request) => {
       calls.push(request)
@@ -46,6 +52,26 @@ function fakeRunner(results: {
       if (results.completion === undefined) throw new Error('unexpected runner result')
       return results.completion
     },
+    codeActions: async (request) => {
+      calls.push(request)
+      return unexpected()
+    },
+    workspaceSymbols: async (request) => {
+      calls.push(request)
+      return unexpected()
+    },
+    documentSymbols: async (request) => {
+      calls.push(request)
+      return unexpected()
+    },
+    signatureHelp: async (request) => {
+      calls.push(request)
+      return unexpected()
+    },
+    inlayHints: async (request) => {
+      calls.push(request)
+      return unexpected()
+    },
   }
   return { runner, calls }
 }
@@ -54,6 +80,10 @@ const CONFIG = {
   servers: {},
   maxDiagnostics: 2,
   maxCompletionItems: 2,
+  maxCodeActions: 50,
+  maxSymbols: 100,
+  maxSignatures: 10,
+  maxInlayHints: 200,
   maxResultChars: 16_000,
   maxDocumentBytes: 4_000_000,
   timeoutMs: 60_000,
@@ -173,6 +203,65 @@ describe('lsp_completion tool', () => {
     expect(text).toContain('reference only — nothing was executed')
     expect(text).toContain('1. alpha — fixture alpha')
   })
+
+  it('projects textEdit and insertText into the canonical items', async () => {
+    const textEdit: LspTextEdit = {
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } },
+      newText: 'console.log()',
+    }
+    const { runner } = fakeRunner({
+      completion: {
+        kind: 'completion',
+        items: [
+          { label: 'log', textEdit },
+          { label: 'plain', insertText: 'plain()' },
+        ],
+      },
+    })
+    registerCompletionTool(fake.ctx as never, runner, CONFIG)
+    const tool = toolByName(fake, 'lsp_completion')
+    const value = await tool.execute({ file_path: 'a.ts', line: 1, character: 1 }, fakeExec(workspace)) as {
+      items: Array<{ label: string; insertText?: string; textEdit?: LspTextEdit }>
+    }
+    expect(value.items[0]?.textEdit).toEqual(textEdit)
+    expect(value.items[1]?.insertText).toBe('plain()')
+    expect(tool.output.presentationMeta({}, value)).toEqual({
+      items: [
+        { label: 'log', insertText: 'console.log()' },
+        { label: 'plain', insertText: 'plain()' },
+      ],
+    })
+  })
+})
+
+describe('tool presentation projections', () => {
+  let fake: FakeContext
+
+  beforeEach(async () => {
+    fake = await createFakeContext({ cwd: process.cwd() })
+  })
+
+  afterEach(async () => {
+    await disposeFakeContext(fake)
+  })
+
+  it('projects diagnostics metadata with columns, sources, and codes', async () => {
+    registerDiagnosticsTool(fake.ctx as never, fakeRunner({ diagnostics: { kind: 'diagnostics', diagnostics: [] } }).runner, CONFIG)
+    const tool = toolByName(fake, 'lsp_diagnostics')
+    expect(tool.output.presentationMeta({}, {
+      kind: 'diagnostics',
+      diagnostics: [{ severity: 2, range: { start: { line: 0, character: 1 } }, message: 'm', source: 's', code: 7 }],
+    })).toEqual({ diagnostics: [{ line: 1, character: 2, severity: 2, message: 'm', source: 's', code: 7 }] })
+  })
+
+  it('projects format metadata as a diff card for both outcome kinds', async () => {
+    registerFormatTool(fake.ctx as never, fakeRunner({ formatDocument: { kind: 'edits', edits: [] } }).runner, new FormatSandboxController(fake.ctx as never), CONFIG)
+    const tool = toolByName(fake, 'lsp_format')
+    expect(tool.output.presentationMeta({ file_path: 'a.ts' }, {
+      kind: 'formatted', file_path: 'a.ts', appliedEdits: 1, linesChanged: 1, before: 'a', after: 'b',
+    })).toEqual({ diffs: [{ path: 'a.ts', oldText: 'a', newText: 'b' }] })
+    expect(tool.output.presentationMeta({ file_path: 'a.ts' }, { kind: 'unchanged', file_path: 'a.ts' })).toEqual({ diffs: [] })
+  })
 })
 
 describe('lsp_format permission matrix', () => {
@@ -199,6 +288,22 @@ describe('lsp_format permission matrix', () => {
     await disposeFakeContext(fake)
   }
 
+  it('rejects a range whose end precedes its start before any server round-trip', async () => {
+    const { fake, workspace } = await fixture({})
+    try {
+      const { runner, calls } = fakeRunner({ formatDocument: { kind: 'edits', edits: [] } })
+      registerFormatTool(fake.ctx as never, runner, new FormatSandboxController(fake.ctx as never), CONFIG)
+      const tool = toolByName(fake, 'lsp_format')
+      await expect(tool.execute({
+        file_path: 'a.ts',
+        range: { start: { line: 2, character: 1 }, end: { line: 1, character: 1 } },
+      }, fakeExec(workspace))).rejects.toThrow(/must not precede/)
+      expect(calls).toHaveLength(0)
+    } finally {
+      await teardown(fake)
+    }
+  })
+
   it('writes under workspace-write policy through write-intent and records observations', async () => {
     const { fake, workspace, filePath } = await fixture({
       fsOptions: { sandboxMode: 'workspace-write' },
@@ -216,6 +321,7 @@ describe('lsp_format permission matrix', () => {
       }
       expect(value.kind).toBe('formatted')
       expect(value.appliedEdits).toBe(1)
+      expect(value.linesChanged).toBe(1)
       expect(value.before).toBe('const x = 1\n')
       expect(value.after).toBe('let x = 1\n')
       expect(await readFile(filePath, 'utf8')).toBe('let x = 1\n')

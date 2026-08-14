@@ -22,6 +22,8 @@ function server(id: string, globs: string[] = [], extensions: Record<string, str
     killGraceMs: 2_000,
     shutdownTimeoutMs: 2_000,
     diagnosticsSettleMs: 500,
+    diagnosticsDebounceMs: 100,
+    idleTimeoutMs: 0,
   }
   return { serverId: id, entry, executable: 'node' }
 }
@@ -53,7 +55,7 @@ describe('createActionRunner routing', () => {
   it('serves through the seam when it succeeds', async () => {
     const { client, calls } = clientDouble()
     const runner = createActionRunner({
-      seam: { query: async () => ({ kind: 'diagnostics' as const, diagnostics: [] }) },
+      getSeam: () => ({ query: async () => ({ kind: 'diagnostics' as const, diagnostics: [] }) }),
       client,
       servers: [],
     })
@@ -62,10 +64,22 @@ describe('createActionRunner routing', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('resolves the seam lazily on every call', async () => {
+    const { client, calls } = clientDouble()
+    let seam: { query: () => Promise<{ kind: 'diagnostics'; diagnostics: never[] }> } | undefined
+    const runner = createActionRunner({ getSeam: () => seam, client, servers: [] })
+    const first = await runner.diagnostics(request).catch((error: unknown) => error)
+    expect(first).toEqual(expect.objectContaining({ code: 'LSP_ACTION_UNAVAILABLE' }))
+    seam = { query: async () => ({ kind: 'diagnostics', diagnostics: [] }) }
+    const second = await runner.diagnostics(request)
+    expect(second.kind).toBe('diagnostics')
+    expect(calls).toHaveLength(0)
+  })
+
   it('falls back to the own client when the seam has no provider for the file', async () => {
     const { client, calls } = clientDouble()
     const runner = createActionRunner({
-      seam: { query: async () => { throw codedError('no provider', 'LSP_UNAVAILABLE') } },
+      getSeam: () => ({ query: async () => { throw codedError('no provider', 'LSP_UNAVAILABLE') } }),
       client,
       servers: [server('ts')],
     })
@@ -77,7 +91,7 @@ describe('createActionRunner routing', () => {
   it('falls back to the own client on a code-less legacy seam failure', async () => {
     const { client, calls } = clientDouble()
     const runner = createActionRunner({
-      seam: { query: async () => { throw new Error('unreachable operation') } },
+      getSeam: () => ({ query: async () => { throw new Error('unreachable operation') } }),
       client,
       servers: [server('ts')],
     })
@@ -88,7 +102,7 @@ describe('createActionRunner routing', () => {
   it('fails loud as unsupported when the seam provider lacks the capability', async () => {
     const { client, calls } = clientDouble()
     const runner = createActionRunner({
-      seam: { query: async () => { throw codedError('unsupported', 'LSP_UNSUPPORTED_OPERATION') } },
+      getSeam: () => ({ query: async () => { throw codedError('unsupported', 'LSP_UNSUPPORTED_OPERATION') } }),
       client,
       servers: [server('ts')],
     })
@@ -102,7 +116,7 @@ describe('createActionRunner routing', () => {
     const { client, calls } = clientDouble()
     const failure = new LspActionError('malformed', 'LSP_ACTION_MALFORMED_RESPONSE')
     const runner = createActionRunner({
-      seam: { query: async () => { throw failure } },
+      getSeam: () => ({ query: async () => { throw failure } }),
       client,
       servers: [],
     })
@@ -112,7 +126,7 @@ describe('createActionRunner routing', () => {
 
   it('fails as unavailable when neither seam nor servers handle the file', async () => {
     const { client, calls } = clientDouble()
-    const runner = createActionRunner({ seam: undefined, client, servers: [] })
+    const runner = createActionRunner({ getSeam: () => undefined, client, servers: [] })
     await expect(runner.diagnostics(request)).rejects.toThrow(
       expect.objectContaining({ code: 'LSP_ACTION_UNAVAILABLE' }),
     )
@@ -125,6 +139,16 @@ describe('routeFile', () => {
   it('prefers a matching glob over the extension map', () => {
     const servers = [server('ext', [], { '.ts': 'typescript' }), server('glob', ['src/**/*.ts'], { '.js': 'javascript' })]
     expect(routeFile(servers, 'src/lib/a.ts')?.server.serverId).toBe('glob')
+  })
+
+  it('uses the file\'s own extension mapping on a glob route when the entry maps it', () => {
+    const servers = [server('glob', ['src/**/*.ts'], { '.js': 'javascript', '.ts': 'typescript' })]
+    expect(routeFile(servers, 'src/lib/a.ts')?.languageId).toBe('typescript')
+  })
+
+  it('falls back to the first mapping on a glob route when the extension is not mapped', () => {
+    const servers = [server('glob', ['**/*.vue'], { '.js': 'javascript', '.ts': 'typescript' })]
+    expect(routeFile(servers, 'src/app.vue')?.languageId).toBe('javascript')
   })
 
   it('falls back to the extension map in config order', () => {

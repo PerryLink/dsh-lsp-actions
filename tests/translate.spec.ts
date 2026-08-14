@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   negotiatePositionEncoding,
+  normalizeCodeActions,
   normalizeCompletionItems,
   normalizeDiagnostics,
   normalizeEdits,
+  normalizeInlayHints,
+  normalizeSignatures,
+  normalizeSymbols,
+  PositionCodec,
   requestMethod,
   supportsAction,
   supportsPullDiagnostics,
@@ -25,6 +30,11 @@ describe('requestMethod', () => {
     expect(requestMethod({ operation: 'formatDocument' })).toBe('textDocument/formatting')
     expect(requestMethod({ operation: 'formatDocument', range: { start: { line: 0, character: 0 }, end: { line: 1, character: 0 } } }))
       .toBe('textDocument/rangeFormatting')
+    expect(requestMethod({ operation: 'codeAction' })).toBe('textDocument/codeAction')
+    expect(requestMethod({ operation: 'workspaceSymbol' })).toBe('workspace/symbol')
+    expect(requestMethod({ operation: 'documentSymbol' })).toBe('textDocument/documentSymbol')
+    expect(requestMethod({ operation: 'signatureHelp' })).toBe('textDocument/signatureHelp')
+    expect(requestMethod({ operation: 'inlayHint' })).toBe('textDocument/inlayHint')
   })
 })
 
@@ -45,6 +55,19 @@ describe('supportsAction', () => {
 
   it('always services diagnostics (pull or push path)', () => {
     expect(supportsAction({}, 'diagnostics', false)).toBe(true)
+  })
+
+  it('gates the extended actions on their provider capabilities', () => {
+    expect(supportsAction({ codeActionProvider: true }, 'codeAction', false)).toBe(true)
+    expect(supportsAction({}, 'codeAction', false)).toBe(false)
+    expect(supportsAction({ workspaceSymbolProvider: {} }, 'workspaceSymbol', false)).toBe(true)
+    expect(supportsAction({}, 'workspaceSymbol', false)).toBe(false)
+    expect(supportsAction({ documentSymbolProvider: true }, 'documentSymbol', false)).toBe(true)
+    expect(supportsAction({}, 'documentSymbol', false)).toBe(false)
+    expect(supportsAction({ signatureHelpProvider: {} }, 'signatureHelp', false)).toBe(true)
+    expect(supportsAction({}, 'signatureHelp', false)).toBe(false)
+    expect(supportsAction({ inlayHintProvider: {} }, 'inlayHint', false)).toBe(true)
+    expect(supportsAction({}, 'inlayHint', false)).toBe(false)
   })
 })
 
@@ -72,13 +95,69 @@ describe('supportsTransientOpen', () => {
 })
 
 describe('negotiatePositionEncoding', () => {
-  it('accepts utf-16 and the protocol default', () => {
+  it('accepts the supported encodings and the protocol default', () => {
     expect(negotiatePositionEncoding(undefined)).toBe('utf-16')
     expect(negotiatePositionEncoding('utf-16')).toBe('utf-16')
+    expect(negotiatePositionEncoding('utf-8')).toBe('utf-8')
+    expect(negotiatePositionEncoding('utf-32')).toBe('utf-32')
   })
 
-  it('rejects any other encoding', () => {
-    expect(() => negotiatePositionEncoding('utf-8')).toThrow(/requires utf-16/)
+  it('rejects an encoding outside the supported set', () => {
+    expect(() => negotiatePositionEncoding('utf-7')).toThrow(/utf-16, utf-8, and utf-32/)
+  })
+})
+
+describe('PositionCodec', () => {
+  const text = '😀xx\naéπ\n'
+
+  it('round-trips code-point-aligned positions in both directions for every supported encoding', () => {
+    for (const encoding of ['utf-8', 'utf-32'] as const) {
+      const codec = new PositionCodec(text)
+      // Offsets inside a surrogate pair are not representable in utf-8/utf-32; aligned ones round-trip.
+      for (const character of [0, 2, 3, 4]) {
+        const encoded = codec.encode({ line: 0, character }, encoding)
+        expect(codec.decode(encoded, encoding).character).toBe(character)
+      }
+      // Line numbers are encoding-independent.
+      expect(codec.encode({ line: 1, character: 2 }, encoding).line).toBe(1)
+    }
+  })
+
+  it('maps utf-16 character offsets to utf-8 bytes across multi-byte code points', () => {
+    const codec = new PositionCodec(text)
+    // '😀' is 4 bytes / 2 utf-16 units: utf-16 offset 2 ('x') is utf-8 byte 4.
+    expect(codec.encode({ line: 0, character: 2 }, 'utf-8').character).toBe(4)
+    expect(codec.decode({ line: 0, character: 4 }, 'utf-8').character).toBe(2)
+  })
+
+  it('maps utf-16 character offsets to utf-32 code points', () => {
+    const codec = new PositionCodec('a😀π\n')
+    // 'a😀π': utf-16 1..2 = '😀' (astral), 3..4 = 'π'; utf-32 counts one per code point.
+    expect(codec.encode({ line: 0, character: 3 }, 'utf-32').character).toBe(2)
+    expect(codec.decode({ line: 0, character: 2 }, 'utf-32').character).toBe(3)
+  })
+
+  it('clamps out-of-range offsets to the document bounds', () => {
+    const codec = new PositionCodec(text)
+    expect(codec.encode({ line: 0, character: 99 }, 'utf-8').character)
+      .toBe(codec.encode({ line: 0, character: text.length }, 'utf-8').character)
+    expect(codec.decode({ line: 0, character: -3 }, 'utf-8').character).toBe(0)
+  })
+
+  it('is the identity for utf-16', () => {
+    const codec = new PositionCodec(text)
+    const position = { line: 0, character: 3 }
+    expect(codec.encode(position, 'utf-16')).toBe(position)
+    expect(codec.decode(position, 'utf-16')).toBe(position)
+  })
+
+  it('decodes normalizeDiagnostics through the decoder', () => {
+    const codec = new PositionCodec(text)
+    const decode = (position: { line: number; character: number }) => codec.decode(position, 'utf-8')
+    const result = normalizeDiagnostics([
+      { severity: 1, range: { start: { line: 0, character: 4 }, end: { line: 0, character: 5 } }, message: 'm' },
+    ], decode)
+    expect(result[0]?.range).toEqual({ start: { line: 0, character: 2 }, end: { line: 0, character: 3 } })
   })
 })
 
@@ -174,5 +253,152 @@ describe('normalizeCompletionItems', () => {
     ['a non-object textEdit', [{ label: 'a', textEdit: 'x' }]],
   ])('rejects %s as malformed', (_label, payload) => {
     expect(() => normalizeCompletionItems(payload)).toThrow(expect.objectContaining({ code: 'LSP_ACTION_MALFORMED_RESPONSE' }))
+  })
+})
+
+describe('normalizeCodeActions', () => {
+  const changes = {
+    'file:///ws/a.ts': [
+      { range: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } }, newText: 'fixed' },
+    ],
+  }
+
+  it('normalizes CodeAction edits grouped by document and Command forms verbatim', () => {
+    const actions = normalizeCodeActions([
+      { title: 'Fix', kind: 'quickfix', isPreferred: true, edit: { changes } },
+      { title: 'Run', command: { title: 'run', command: 'x.run', arguments: [1] } },
+    ])
+    expect(actions).toHaveLength(2)
+    expect(actions[0]).toEqual({
+      title: 'Fix',
+      kind: 'quickfix',
+      isPreferred: true,
+      edits: { 'file:///ws/a.ts': [{ range: { start: { line: 1, character: 0 }, end: { line: 1, character: 4 } }, newText: 'fixed' }] },
+    })
+    expect(actions[1]?.command).toEqual({ title: 'run', command: 'x.run', arguments: [1] })
+  })
+
+  it('collects TextDocumentEdit documentChanges and drops workspace edits', () => {
+    const actions = normalizeCodeActions([
+      {
+        title: 'DocEdit',
+        edit: {
+          documentChanges: [
+            { textDocument: { uri: 'file:///ws/b.ts' }, edits: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: 'x' }] },
+            { kind: 'create', uri: 'file:///ws/new.ts' },
+          ],
+        },
+      },
+    ])
+    expect(actions[0]?.edits).toEqual({
+      'file:///ws/b.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: 'x' }],
+    })
+  })
+
+  it('accepts null as empty and rejects malformed payloads', () => {
+    expect(normalizeCodeActions(null)).toEqual([])
+    expect(() => normalizeCodeActions([{ command: 'x.run' }])).toThrow(expect.objectContaining({ code: 'LSP_ACTION_MALFORMED_RESPONSE' }))
+    expect(() => normalizeCodeActions([{ title: 't', isPreferred: 'yes' }])).toThrow(expect.objectContaining({ code: 'LSP_ACTION_MALFORMED_RESPONSE' }))
+    expect(() => normalizeCodeActions([{ title: 't', edit: { changes: 'nope' } }])).toThrow(expect.objectContaining({ code: 'LSP_ACTION_MALFORMED_RESPONSE' }))
+  })
+})
+
+describe('normalizeSymbols', () => {
+  it('normalizes SymbolInformation with locations', () => {
+    const symbols = normalizeSymbols([
+      { name: 'sym', kind: 12, location: { uri: 'file:///ws/a.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }, containerName: 'mod' },
+    ], undefined)
+    expect(symbols).toEqual([{
+      name: 'sym',
+      kind: 12,
+      location: { uri: 'file:///ws/a.ts', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } },
+      containerName: 'mod',
+    }])
+  })
+
+  it('flattens DocumentSymbol hierarchies against the document uri', () => {
+    const symbols = normalizeSymbols([
+      {
+        name: 'parent', kind: 5, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 2 } },
+        selectionRange: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+        children: [{ name: 'child', kind: 6, range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } }, selectionRange: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } } }],
+      },
+    ], 'file:///ws/a.ts')
+    expect(symbols.map(symbol => symbol.name)).toEqual(['parent', 'child'])
+    expect(symbols[1]?.location.uri).toBe('file:///ws/a.ts')
+  })
+})
+
+describe('normalizeSignatures', () => {
+  it('normalizes labels, markdown documentation, and tuple parameter labels', () => {
+    const result = normalizeSignatures({
+      signatures: [
+        {
+          label: 'f(a: number, b: string)',
+          documentation: { kind: 'markdown', value: 'docs' },
+          parameters: [
+            { label: [2, 11], documentation: 'first' },
+            { label: 'b: string' },
+          ],
+        },
+      ],
+      activeSignature: 0,
+      activeParameter: 1,
+    })
+    expect(result.signatures[0]?.label).toBe('f(a: number, b: string)')
+    expect(result.signatures[0]?.documentation).toBe('docs')
+    expect(result.signatures[0]?.parameters).toEqual([
+      { label: 'a: number', documentation: 'first' },
+      { label: 'b: string' },
+    ])
+    expect(result.activeSignature).toBe(0)
+    expect(result.activeParameter).toBe(1)
+  })
+
+  it('returns empty signatures for null', () => {
+    expect(normalizeSignatures(null)).toEqual({ signatures: [] })
+  })
+
+  it.each([
+    ['a non-object payload', 'nope'],
+    ['missing signatures array', {}],
+    ['a signature without a label', { signatures: [{}] }],
+    ['non-string documentation', { signatures: [{ label: 'f()', documentation: 42 }] }],
+    ['a markup without a value', { signatures: [{ label: 'f()', documentation: { kind: 'markdown' } }] }],
+    ['a bad parameter label', { signatures: [{ label: 'f()', parameters: [{ label: 42 }] }] }],
+  ])('rejects %s as malformed', (_label, payload) => {
+    expect(() => normalizeSignatures(payload)).toThrow(expect.objectContaining({ code: 'LSP_ACTION_MALFORMED_RESPONSE' }))
+  })
+})
+
+describe('normalizeInlayHints', () => {
+  it('joins multi-part labels and keeps padding markers', () => {
+    const hints = normalizeInlayHints([
+      { position: { line: 1, character: 0 }, label: [{ value: ': ' }, { value: 'number' }], kind: 1, paddingLeft: true },
+    ])
+    expect(hints).toEqual([
+      { position: { line: 1, character: 0 }, label: ': number', kind: 1, paddingLeft: true },
+    ])
+  })
+
+  it('decodes positions through the decoder', () => {
+    const codec = new PositionCodec('a😀\n')
+    const decode = (position: { line: number; character: number }) => codec.decode(position, 'utf-8')
+    // utf-8 character 5 on line 0 is the newline position (after the 4-byte emoji): utf-16 3.
+    const hints = normalizeInlayHints([{ position: { line: 0, character: 5 }, label: 'hint' }], decode)
+    expect(hints[0]?.position).toEqual({ line: 0, character: 3 })
+  })
+
+  it('accepts null as empty', () => {
+    expect(normalizeInlayHints(null)).toEqual([])
+  })
+
+  it.each([
+    ['a non-array payload', {}],
+    ['a hint without a position', [{ label: 'x' }]],
+    ['a hint with a bad label part', [{ position: { line: 0, character: 0 }, label: [{ kind: 1 }] }]],
+    ['a non-boolean padding marker', [{ position: { line: 0, character: 0 }, label: 'x', paddingLeft: 'yes' }]],
+  ])('rejects %s as malformed', (_label, payload) => {
+    expect(() => normalizeInlayHints(payload)).toThrow(expect.objectContaining({ code: 'LSP_ACTION_MALFORMED_RESPONSE' }))
   })
 })

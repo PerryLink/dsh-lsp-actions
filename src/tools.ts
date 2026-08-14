@@ -33,7 +33,7 @@ import type { LspPosition, LspRange } from './vocabulary.ts'
 import { LspActionError } from './vocabulary.ts'
 
 /** The shared position schema, reused inside ranges and output projections. */
-const POSITION_SCHEMA = {
+export const POSITION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -43,7 +43,7 @@ const POSITION_SCHEMA = {
 } as const
 
 /** The shared output-side range schema. */
-const OUTPUT_RANGE_SCHEMA = {
+export const OUTPUT_RANGE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: true,
@@ -106,6 +106,7 @@ export function registerDiagnosticsTool(ctx: Context, runner: ActionRunner, conf
       presentationMeta: (_args, value) => ({
         diagnostics: value.diagnostics.map((diagnostic: { severity: number; range: { start: LspPosition }; message: string; source?: string; code?: string | number }) => ({
           line: diagnostic.range.start.line + 1,
+          character: diagnostic.range.start.character + 1,
           severity: diagnostic.severity,
           message: diagnostic.message,
           ...diagnostic.source === undefined ? {} : { source: diagnostic.source },
@@ -175,6 +176,7 @@ export function registerFormatTool(
               kind: { type: 'string', required: true, const: 'formatted' },
               file_path: { type: 'string', required: true },
               appliedEdits: { type: 'integer', required: true },
+              linesChanged: { type: 'integer', required: true },
               before: { type: 'string', required: true },
               after: { type: 'string', required: true },
             },
@@ -192,7 +194,7 @@ export function registerFormatTool(
       render: (_args, value) => {
         switch (value.kind) {
           case 'formatted':
-            return [{ type: 'text', text: formatAppliedEdits(value.file_path, value.appliedEdits) }]
+            return [{ type: 'text', text: formatAppliedEdits(value.file_path, value.appliedEdits, value.linesChanged) }]
           case 'unchanged':
             return [{ type: 'text', text: `Formatted ${value.file_path}: the server returned no changes.` }]
         }
@@ -237,6 +239,7 @@ export function registerFormatTool(
         kind: 'formatted' as const,
         file_path: filePath,
         appliedEdits: result.edits.length,
+        linesChanged: linesChangedByEdits(result.edits),
         before: outcome.before ?? request.source.text,
         after: outcome.after,
       }
@@ -300,10 +303,14 @@ export function registerCompletionTool(ctx: Context, runner: ActionRunner, confi
       },
       render: (args, value) => [{ type: 'text', text: formatCompletionList(value.file_path, args.line, args.character, value.items, config.maxResultChars) }],
       presentationMeta: (_args, value) => ({
-        items: value.items.map((item: { label: string; detail?: string }) => ({
-          label: item.label,
-          ...item.detail === undefined ? {} : { detail: item.detail },
-        })),
+        items: value.items.map((item: { label: string; detail?: string; insertText?: string; textEdit?: { newText: string } }) => {
+          const insertText = item.textEdit?.newText ?? item.insertText
+          return {
+            label: item.label,
+            ...item.detail === undefined ? {} : { detail: item.detail },
+            ...insertText === undefined ? {} : { insertText },
+          }
+        }),
       }),
     },
     timeoutMs: config.timeoutMs,
@@ -328,33 +335,33 @@ export function registerCompletionTool(ctx: Context, runner: ActionRunner, confi
 }
 
 /** The shared preparation every tool runs: workspace + contained, byte-capped source read. */
-async function prepareRequest(
+export async function prepareRequest(
   ctx: Context,
   config: ResolvedConfig,
   filePath: string,
   workspaceRoot: string,
   exec: ToolExecution,
-): Promise<RunnerRequest> {
+): Promise<RunnerRequest & { source: NonNullable<RunnerRequest['source']> }> {
   const workspace = await canonicalizeWorkspace(ctx.fs, workspaceRoot, exec.signal)
   const source = await readHostSource(ctx.fs, filePath, workspace, config.maxDocumentBytes, exec.signal)
   return { filePath, workspaceRoot, source }
 }
 
 /** Validate a non-blank file path. */
-function parseFilePath(filePath: string): string {
+export function parseFilePath(filePath: string): string {
   if (filePath.trim().length === 0) throw new Error('file_path must be a non-empty string')
   return filePath
 }
 
 /** Validate one-based cursor coordinates and convert them to the zero-based wire position. */
-function parseCursor(line: number, character: number): LspPosition {
+export function parseCursor(line: number, character: number): LspPosition {
   if (!Number.isInteger(line) || line < 1) throw new Error('line must be a positive integer (one-based)')
   if (!Number.isInteger(character) || character < 1) throw new Error('character must be a positive integer (one-based)')
   return { line: line - 1, character: character - 1 }
 }
 
 /** Validate an optional one-based range and convert it to the zero-based wire range. */
-function parseOptionalRange(range: FormatToolArgs['range']): LspRange | undefined {
+export function parseOptionalRange(range: FormatToolArgs['range']): LspRange | undefined {
   if (range === undefined) return undefined
   const start = parseCursor(range.start.line, range.start.character)
   const end = parseCursor(range.end.line, range.end.character)
@@ -365,7 +372,7 @@ function parseOptionalRange(range: FormatToolArgs['range']): LspRange | undefine
 }
 
 /** The session workspace root, or a structured failure — a server needs a real workspace. */
-function requireWorkspace(exec: ToolExecution): string {
+export function requireWorkspace(exec: ToolExecution): string {
   const workspaceRoot = sessionCwd(exec)
   if (workspaceRoot === undefined) {
     throw new LspActionError('this LSP action tool requires a session workspace cwd', 'LSP_ACTION_WORKSPACE_REQUIRED')
@@ -449,4 +456,16 @@ function mapFormatWriteFailure(error: unknown): unknown {
     )
   }
   return error
+}
+
+/** The one-based line span the applied edits touch (0 for an empty edit list). */
+function linesChangedByEdits(edits: readonly { range: LspRange }[]): number {
+  if (edits.length === 0) return 0
+  let min = Number.POSITIVE_INFINITY
+  let max = Number.NEGATIVE_INFINITY
+  for (const edit of edits) {
+    min = Math.min(min, edit.range.start.line, edit.range.end.line)
+    max = Math.max(max, edit.range.start.line, edit.range.end.line)
+  }
+  return max - min + 1
 }

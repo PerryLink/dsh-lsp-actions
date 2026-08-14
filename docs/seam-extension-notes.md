@@ -2,6 +2,8 @@
 
 状态：2026-08-14。本文档是交付物第 1 条：结论分叉的调研记录与决策依据。
 
+> 2026-08-15 增补：对当前 harness 树（`a0ab396`）执行 `git apply --check upstream/lsp-action-seam.patch` 干净通过（34 文件，+1201/−201），补丁仍可重放；跟踪表见 `upstream/README.md`。插件的 seam 探测已改为按调用惰性解析（不再依赖加载顺序）。
+
 ## 1. 现状盘点（调研结论）
 
 ### 官方 seam 词汇（`packages/lsp/`）

@@ -17,16 +17,21 @@ import { canonicalizeWorkspace } from './host.ts'
 import type { HostSource, HostWorkspace } from './host.ts'
 import {
   negotiatePositionEncoding,
+  normalizeCodeActions,
   normalizeCompletionItems,
   normalizeDiagnostics,
   normalizeEdits,
+  normalizeInlayHints,
+  normalizeSignatures,
+  normalizeSymbols,
+  PositionCodec,
   requestMethod,
   supportsAction,
   supportsPullDiagnostics,
   supportsTransientOpen,
 } from './translate.ts'
-import type { WireServerCapabilities } from './translate.ts'
-import type { LspActionResult, LspCompletionResult, LspDiagnostic, LspDiagnosticsResult, LspEditsResult, LspPosition, LspRange } from './vocabulary.ts'
+import type { PositionDecoder, WirePositionEncoding, WireServerCapabilities } from './translate.ts'
+import type { LspActionResult, LspCodeActionsResult, LspCompletionResult, LspDiagnostic, LspDiagnosticsResult, LspEditsResult, LspInlayHintsResult, LspPosition, LspRange, LspSignaturesResult, LspSymbolsResult } from './vocabulary.ts'
 import { LspActionError } from './vocabulary.ts'
 import type { ResolvedServer } from './servers.ts'
 
@@ -40,10 +45,12 @@ export interface ActionRequest {
   readonly source: HostSource
   /** The LSP language id for `filePath`, from the routed server's extension mapping. */
   readonly languageId: string
-  /** The cursor position, for completion. */
+  /** The cursor position, for completion and signature help. */
   readonly position?: LspPosition
-  /** The formatting range, for range formatting. */
+  /** The formatting/code-action/inlay-hint range, when the caller narrowed it. */
   readonly range?: LspRange
+  /** CodeActionKind filters for code actions (e.g. `quickfix`). */
+  readonly onlyKinds?: readonly string[]
 }
 
 /** Everything one instance needs beyond the connection spec. */
@@ -61,6 +68,8 @@ interface InstanceSpec {
   readonly killGraceMs: number
   readonly shutdownTimeoutMs: number
   readonly diagnosticsSettleMs: number
+  readonly diagnosticsDebounceMs: number
+  readonly idleTimeoutMs: number
 }
 
 /**
@@ -114,6 +123,77 @@ export class LspActionClient {
     return this.run(server, request, signal, instance => instance.completion(request, signal))
   }
 
+  /**
+   * Run the code actions action through the routed server; the client only REPORTS edits and
+   * commands, it never applies them — applying one is the model's own write/edit decision.
+   * @param server - the routed server entry.
+   * @param request - the action request (carries the optional range and kind filters).
+   * @param signal - optional cancellation.
+   * @returns the normalized code actions result.
+   */
+  codeActions(server: ResolvedServer, request: ActionRequest, signal?: AbortSignal): Promise<LspCodeActionsResult> {
+    return this.run(server, request, signal, instance => instance.codeActions(request, signal))
+  }
+
+  /**
+   * Run a workspace-wide symbol search through the routed server (no document involved).
+   * @param server - the routed server entry.
+   * @param workspaceRoot - the workspace to search.
+   * @param query - the symbol name query.
+   * @param signal - optional cancellation.
+   * @returns the normalized symbols result.
+   */
+  workspaceSymbols(server: ResolvedServer, workspaceRoot: string, query: string, signal?: AbortSignal): Promise<LspSymbolsResult> {
+    return this.runBare(server, workspaceRoot, signal, instance => instance.workspaceSymbols(query, signal))
+  }
+
+  /**
+   * Run a workspace-wide symbol search with one document kept open: project-based servers (tsls)
+   * refuse document-free `workspace/symbol`, so the routing file stays transiently open for the
+   * request and closes afterwards.
+   * @param server - the routed server entry.
+   * @param request - the action request (whose source is kept open during the search).
+   * @param query - the symbol name query.
+   * @param signal - optional cancellation.
+   * @returns the normalized symbols result.
+   */
+  workspaceSymbolsInDocument(server: ResolvedServer, request: ActionRequest, query: string, signal?: AbortSignal): Promise<LspSymbolsResult> {
+    return this.run(server, request, signal, instance => instance.workspaceSymbolsInDocument(request, query, signal))
+  }
+
+  /**
+   * Run a document symbol listing through the routed server.
+   * @param server - the routed server entry.
+   * @param request - the action request.
+   * @param signal - optional cancellation.
+   * @returns the normalized symbols result.
+   */
+  documentSymbols(server: ResolvedServer, request: ActionRequest, signal?: AbortSignal): Promise<LspSymbolsResult> {
+    return this.run(server, request, signal, instance => instance.documentSymbols(request, signal))
+  }
+
+  /**
+   * Run signature help through the routed server.
+   * @param server - the routed server entry.
+   * @param request - the action request (carries the cursor position).
+   * @param signal - optional cancellation.
+   * @returns the normalized signatures result.
+   */
+  signatureHelp(server: ResolvedServer, request: ActionRequest, signal?: AbortSignal): Promise<LspSignaturesResult> {
+    return this.run(server, request, signal, instance => instance.signatureHelp(request, signal))
+  }
+
+  /**
+   * Run inlay hints through the routed server.
+   * @param server - the routed server entry.
+   * @param request - the action request (carries the optional range).
+   * @param signal - optional cancellation.
+   * @returns the normalized inlay hints result.
+   */
+  inlayHints(server: ResolvedServer, request: ActionRequest, signal?: AbortSignal): Promise<LspInlayHintsResult> {
+    return this.run(server, request, signal, instance => instance.inlayHints(request, signal))
+  }
+
   /** Disposed flag through a method so an await cannot narrow it to a literal. */
   private isDisposed(): boolean {
     return this.disposed
@@ -143,19 +223,91 @@ export class LspActionClient {
     const workspace = await canonicalizeWorkspace(this.fs, request.workspaceRoot, querySignal)
     this.assertActive(querySignal)
     const key = `${server.serverId}\u0000${workspace.target.targetKey}`
-    return this.enqueue(key, querySignal, async () => {
-      this.assertActive(querySignal)
-      const instance = this.instanceFor(key, workspace, server)
+    return this.runScoped(key, workspace, server, querySignal, body)
+  }
+
+  /** The document-free sibling of {@link run}: serves workspace-scoped actions (symbol search). */
+  private async runBare<T>(
+    server: ResolvedServer,
+    workspaceRoot: string,
+    signal: AbortSignal | undefined,
+    body: (instance: LspActionInstance, signal: AbortSignal | undefined) => Promise<T>,
+  ): Promise<T> {
+    this.assertActive(signal)
+    const querySignal = this.querySignal(signal)
+    const workspace = await canonicalizeWorkspace(this.fs, workspaceRoot, querySignal)
+    this.assertActive(querySignal)
+    const key = `${server.serverId}\u0000${workspace.target.targetKey}`
+    return this.runScoped(key, workspace, server, querySignal, body)
+  }
+
+  /** Serialize and run one action attempt pair (retry-once included) for a canonical workspace. */
+  private runScoped<T>(
+    key: string,
+    workspace: HostWorkspace,
+    server: ResolvedServer,
+    signal: AbortSignal,
+    body: (instance: LspActionInstance, signal: AbortSignal | undefined) => Promise<T>,
+  ): Promise<T> {
+    return this.enqueue(key, signal, async () => {
+      this.assertActive(signal)
       try {
-        return await body(instance, querySignal)
-      } finally {
-        // A dead instance can never serve again: evict it so the next call spawns fresh.
-        if (instance.dead) {
-          await instance.dispose().catch(() => {})
-          if (this.instances.get(key) === instance) this.instances.delete(key)
+        return await this.runOnce(key, workspace, server, signal, body)
+      } catch (error) {
+        // A structured server failure with the first instance dying during its handshake gets one
+        // fresh-spawn retry, matching the official stdio host's single bad-transport retry.
+        // Mid-action failures surface as plain connection errors and never retry here.
+        if (isHandshakeServerFailure(error)) {
+          return await this.runOnce(key, workspace, server, signal, body)
         }
+        throw error
       }
     })
+  }
+
+  /** One attempt: publish/borrow the instance, run the action, evict the dead, arm the idle timer. */
+  private async runOnce<T>(
+    key: string,
+    workspace: HostWorkspace,
+    server: ResolvedServer,
+    signal: AbortSignal,
+    body: (instance: LspActionInstance, signal: AbortSignal | undefined) => Promise<T>,
+  ): Promise<T> {
+    const instance = this.instanceFor(key, workspace, server)
+    try {
+      return await body(instance, signal)
+    } finally {
+      // A dead instance can never serve again: evict it so the next call spawns fresh.
+      if (instance.dead) {
+        await instance.dispose().catch(() => {})
+        if (this.instances.get(key) === instance) this.instances.delete(key)
+        this.clearIdleTimer(key)
+      } else if (server.entry.idleTimeoutMs > 0) {
+        this.armIdleTimer(key, instance, server.entry.idleTimeoutMs)
+      }
+    }
+  }
+
+  /** Idle-eviction timers per workspace key; a use resets, a fire disposes and evicts. */
+  private readonly idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  private armIdleTimer(key: string, instance: LspActionInstance, idleTimeoutMs: number): void {
+    this.clearIdleTimer(key)
+    const timer = setTimeout(() => {
+      if (this.instances.get(key) !== instance) return
+      this.instances.delete(key)
+      this.idleTimers.delete(key)
+      void instance.dispose().catch(() => {})
+    }, idleTimeoutMs)
+    timer.unref?.()
+    this.idleTimers.set(key, timer)
+  }
+
+  private clearIdleTimer(key: string): void {
+    const timer = this.idleTimers.get(key)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    this.idleTimers.delete(key)
   }
 
   /** Serialize one complete action lifecycle per canonical workspace. */
@@ -199,6 +351,8 @@ export class LspActionClient {
       killGraceMs: server.entry.killGraceMs,
       shutdownTimeoutMs: server.entry.shutdownTimeoutMs,
       diagnosticsSettleMs: server.entry.diagnosticsSettleMs,
+      diagnosticsDebounceMs: server.entry.diagnosticsDebounceMs,
+      idleTimeoutMs: server.entry.idleTimeoutMs,
     }, this.spawner)
     this.instances.set(key, created)
     return created
@@ -208,6 +362,8 @@ export class LspActionClient {
   async disposeAll(): Promise<void> {
     this.disposed = true
     this.lifetime.abort(new LspActionError('LSP action client is disposed', 'LSP_ACTION_SERVER_FAILED'))
+    for (const timer of this.idleTimers.values()) clearTimeout(timer)
+    this.idleTimers.clear()
     const live = [...this.instances.values()]
     this.instances.clear()
     const results = await Promise.allSettled(live.map(instance => instance.dispose()))
@@ -223,14 +379,19 @@ export class LspActionClient {
 class LspActionInstance {
   private readonly connection: LspConnection
   private capabilities: WireServerCapabilities | undefined
+  private positionEncoding: WirePositionEncoding = 'utf-16'
   private queue: Promise<unknown> = Promise.resolve()
   private disposed = false
   private teardownPromise: Promise<void> | undefined
   private processClosed = false
+  /** True when the handshake (initialize) ended in failure — the one retryable server state. */
+  private handshakeFailed = false
   private readonly ready: Promise<void>
   /** Latest pushed diagnostic batch per document URI (push-only servers). */
   private readonly pushed = new Map<string, LspDiagnostic[]>()
   private readonly pushWaiters = new Map<string, () => void>()
+  /** Per-document text (and codec) for the transiently opened document, for push-path conversion. */
+  private readonly openedDocs = new Map<string, { readonly text: string; readonly codec: PositionCodec | undefined }>()
 
   constructor(private readonly spec: InstanceSpec, spawner: ConnectionSpawner) {
     this.connection = new LspConnection({
@@ -244,7 +405,10 @@ class LspActionInstance {
       configuration: spec.configuration,
     }, spawner, (method, params) => this.answerServerRequest(method, params))
     this.connection.onNotification((method, params) => { this.onNotification(method, params) })
-    this.ready = this.initialize()
+    this.ready = this.initialize().catch((error: unknown) => {
+      this.handshakeFailed = true
+      throw error
+    })
     // A handshake rejection must not surface as an unhandled rejection before the first action
     // awaits it; actions attach the real handler.
     this.ready.catch(() => {})
@@ -272,7 +436,7 @@ class LspActionInstance {
         throw new LspActionError('language server initialize result had no capabilities', 'LSP_ACTION_MALFORMED_RESPONSE')
       }
       this.capabilities = capabilities as WireServerCapabilities
-      negotiatePositionEncoding(this.capabilities.positionEncoding)
+      this.positionEncoding = negotiatePositionEncoding(this.capabilities.positionEncoding)
       await this.connection.notify('initialized', {})
     } catch (error) {
       // Handshake failures are always server-side: the initialize request raced no signal here.
@@ -304,12 +468,13 @@ class LspActionInstance {
   diagnostics(request: ActionRequest, signal?: AbortSignal): Promise<LspDiagnosticsResult> {
     return this.runSerialized(signal, async () => {
       await this.readyGate(signal)
+      this.assertSupports('diagnostics', request)
       const capabilities = this.requiredCapabilities()
       const pull = supportsPullDiagnostics(capabilities)
       return await this.withDocument(request, signal, async (uri) => {
         if (pull) {
           const payload = await this.sendRequest('textDocument/diagnostic', { textDocument: { uri } }, signal)
-          return { kind: 'diagnostics', diagnostics: normalizeDiagnostics(payload) } as const
+          return { kind: 'diagnostics', diagnostics: normalizeDiagnostics(payload, this.decodeFor(request.source.text)) } as const
         }
         const diagnostics = await this.waitForPushedDiagnostics(uri, signal)
         return { kind: 'diagnostics', diagnostics } as const
@@ -326,9 +491,9 @@ class LspActionInstance {
         const payload = await this.sendRequest(method, {
           textDocument: { uri },
           ...this.spec.formattingOptions === null ? {} : { options: this.spec.formattingOptions },
-          ...request.range === undefined ? {} : { range: request.range },
+          ...request.range === undefined ? {} : { range: this.encodeRange(request.source.text, request.range) },
         }, signal)
-        return { kind: 'edits', edits: normalizeEdits(payload) } as const
+        return { kind: 'edits', edits: normalizeEdits(payload, this.decodeFor(request.source.text)) } as const
       })
     })
   }
@@ -340,11 +505,141 @@ class LspActionInstance {
       return await this.withDocument(request, signal, async (uri) => {
         const payload = await this.sendRequest('textDocument/completion', {
           textDocument: { uri },
-          position: request.position,
+          position: this.encodePosition(request.source.text, request.position),
         }, signal)
-        return { kind: 'completion', items: normalizeCompletionItems(payload) } as const
+        return { kind: 'completion', items: normalizeCompletionItems(payload, this.decodeFor(request.source.text)) } as const
       })
     })
+  }
+
+  codeActions(request: ActionRequest, signal?: AbortSignal): Promise<LspCodeActionsResult> {
+    return this.runSerialized(signal, async () => {
+      await this.readyGate(signal)
+      this.assertSupports('codeAction', request)
+      return await this.withDocument(request, signal, async (uri) => {
+        const diagnostics = await this.collectDiagnostics(uri, request, signal)
+        const range = request.range ?? firstDiagnosticRange(diagnostics) ?? documentRange(request.source.text)
+        const encode = this.encodeAll(request.source.text)
+        const payload = await this.sendRequest('textDocument/codeAction', {
+          textDocument: { uri },
+          range: encode === undefined ? range : { start: encode(range.start), end: encode(range.end) },
+          context: {
+            diagnostics: diagnostics.map(diagnostic => wireDiagnostic(diagnostic, encode)),
+            ...request.onlyKinds === undefined ? {} : { only: request.onlyKinds },
+          },
+        }, signal)
+        return { kind: 'codeActions', items: normalizeCodeActions(payload, this.decodeFor(request.source.text)) } as const
+      })
+    })
+  }
+
+  workspaceSymbols(query: string, signal?: AbortSignal): Promise<LspSymbolsResult> {
+    return this.runSerialized(signal, async () => {
+      await this.readyGate(signal)
+      const capabilities = this.requiredCapabilities()
+      if (!supportsAction(capabilities, 'workspaceSymbol', false)) {
+        throw new LspActionError('server does not support workspaceSymbol', 'LSP_ACTION_UNSUPPORTED')
+      }
+      const payload = await this.sendRequest('workspace/symbol', { query }, signal)
+      return { kind: 'symbols', items: normalizeSymbols(payload, undefined) } as const
+    })
+  }
+
+  /** The document-open variant of {@link workspaceSymbols}, for project-based servers. */
+  workspaceSymbolsInDocument(request: ActionRequest, query: string, signal?: AbortSignal): Promise<LspSymbolsResult> {
+    return this.runSerialized(signal, async () => {
+      await this.readyGate(signal)
+      const capabilities = this.requiredCapabilities()
+      if (!supportsAction(capabilities, 'workspaceSymbol', false)) {
+        throw new LspActionError('server does not support workspaceSymbol', 'LSP_ACTION_UNSUPPORTED')
+      }
+      return await this.withDocument(request, signal, async () => {
+        const payload = await this.sendRequest('workspace/symbol', { query }, signal)
+        return { kind: 'symbols', items: normalizeSymbols(payload, undefined) } as const
+      })
+    })
+  }
+
+  documentSymbols(request: ActionRequest, signal?: AbortSignal): Promise<LspSymbolsResult> {
+    return this.runSerialized(signal, async () => {
+      await this.readyGate(signal)
+      this.assertSupports('documentSymbol', request)
+      return await this.withDocument(request, signal, async (uri) => {
+        const payload = await this.sendRequest('textDocument/documentSymbol', { textDocument: { uri } }, signal)
+        return { kind: 'symbols', items: normalizeSymbols(payload, uri, this.decodeFor(request.source.text)) } as const
+      })
+    })
+  }
+
+  signatureHelp(request: ActionRequest, signal?: AbortSignal): Promise<LspSignaturesResult> {
+    return this.runSerialized(signal, async () => {
+      await this.readyGate(signal)
+      this.assertSupports('signatureHelp', request)
+      return await this.withDocument(request, signal, async (uri) => {
+        const payload = await this.sendRequest('textDocument/signatureHelp', {
+          textDocument: { uri },
+          position: this.encodePosition(request.source.text, request.position),
+        }, signal)
+        return { kind: 'signatures', ...normalizeSignatures(payload) } as const
+      })
+    })
+  }
+
+  inlayHints(request: ActionRequest, signal?: AbortSignal): Promise<LspInlayHintsResult> {
+    return this.runSerialized(signal, async () => {
+      await this.readyGate(signal)
+      this.assertSupports('inlayHint', request)
+      return await this.withDocument(request, signal, async (uri) => {
+        const payload = await this.sendRequest('textDocument/inlayHint', {
+          textDocument: { uri },
+          ...request.range === undefined ? {} : { range: this.encodeRange(request.source.text, request.range) },
+        }, signal)
+        return { kind: 'inlayHints', items: normalizeInlayHints(payload, this.decodeFor(request.source.text)) } as const
+      })
+    })
+  }
+
+  /** Collect this document's diagnostics for a code-action context (pull or push-settle). */
+  private async collectDiagnostics(uri: string, request: ActionRequest, signal: AbortSignal | undefined): Promise<LspDiagnostic[]> {
+    const capabilities = this.requiredCapabilities()
+    if (supportsPullDiagnostics(capabilities)) {
+      const payload = await this.sendRequest('textDocument/diagnostic', { textDocument: { uri } }, signal)
+      return normalizeDiagnostics(payload, this.decodeFor(request.source.text))
+    }
+    return await this.waitForPushedDiagnostics(uri, signal)
+  }
+
+  /** The codec for one document, or undefined when the server speaks utf-16. */
+  private codecFor(text: string): PositionCodec | undefined {
+    return this.positionEncoding === 'utf-16' ? undefined : new PositionCodec(text)
+  }
+
+  /** Encode a utf-16 cursor position into the server's encoding. */
+  private encodePosition(text: string, position: LspPosition | undefined): LspPosition | undefined {
+    if (position === undefined) return undefined
+    return this.codecFor(text)?.encode(position, this.positionEncoding) ?? position
+  }
+
+  /** Encode a utf-16 range into the server's encoding. */
+  private encodeRange(text: string, range: LspRange | undefined): LspRange | undefined {
+    if (range === undefined) return undefined
+    const codec = this.codecFor(text)
+    if (codec === undefined) return range
+    return { start: codec.encode(range.start, this.positionEncoding), end: codec.encode(range.end, this.positionEncoding) }
+  }
+
+  /** A result-side position decoder for one document, or undefined for utf-16 servers. */
+  private decodeFor(text: string): PositionDecoder | undefined {
+    const codec = this.codecFor(text)
+    if (codec === undefined) return undefined
+    return position => codec.decode(position, this.positionEncoding)
+  }
+
+  /** A position encoder for one document, or undefined for utf-16 servers. */
+  private encodeAll(text: string): ((position: LspPosition) => LspPosition) | undefined {
+    const codec = this.codecFor(text)
+    if (codec === undefined) return undefined
+    return position => codec.encode(position, this.positionEncoding)
   }
 
   private requiredCapabilities(): WireServerCapabilities {
@@ -355,7 +650,10 @@ class LspActionInstance {
   }
 
   /** Reject an action the server did not advertise, or a sync mode this client cannot serve. */
-  private assertSupports(operation: 'formatDocument' | 'completion', request: ActionRequest): void {
+  private assertSupports(
+    operation: 'diagnostics' | 'formatDocument' | 'completion' | 'codeAction' | 'documentSymbol' | 'signatureHelp' | 'inlayHint',
+    request: ActionRequest,
+  ): void {
     const capabilities = this.requiredCapabilities()
     if (!supportsAction(capabilities, operation, request.range !== undefined)) {
       throw new LspActionError(`server does not support ${operation}`, 'LSP_ACTION_UNSUPPORTED')
@@ -372,6 +670,7 @@ class LspActionInstance {
     body: (uri: string) => Promise<T>,
   ): Promise<T> {
     const uri = request.source.fileUrl
+    const key = normalizeUri(uri)
     let opened = false
     try {
       if (signal?.aborted) throw signal.reason
@@ -385,8 +684,12 @@ class LspActionInstance {
         throw error
       }
       opened = true
+      // Remember the opened text so push notifications (publishDiagnostics) can be decoded from
+      // the server's position encoding.
+      this.openedDocs.set(key, { text: request.source.text, codec: this.codecFor(request.source.text) })
       return await body(uri)
     } finally {
+      this.openedDocs.delete(key)
       // A disposed or closed instance is already tearing down; sending didClose would race it.
       if (opened && !this.dead) {
         try {
@@ -430,16 +733,24 @@ class LspActionInstance {
     }
   }
 
-  /** Collect push-only diagnostics: the latest batch for this URI, or the settle deadline. */
+  /**
+   * Collect push-only diagnostics for one URI: the LATEST batch wins. Batches replace each other
+   * (per LSP push semantics) while the settle window is open, and each push resets a short quiet
+   * period (`diagnosticsDebounceMs`), so a server that publishes partial then complete batches
+   * yields the complete one; the settle deadline resolves whatever is latest (empty when nothing
+   * arrived).
+   */
   private waitForPushedDiagnostics(uri: string, signal?: AbortSignal): Promise<LspDiagnostic[]> {
     const key = normalizeUri(uri)
     return new Promise<LspDiagnostic[]>((resolve, reject) => {
       const settle = AbortSignal.timeout(this.spec.diagnosticsSettleMs)
       const fused = signal === undefined ? settle : AbortSignal.any([signal, settle])
       let done = false
-      const finish = (): void => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const takeLatest = (): void => {
         if (done) return
         done = true
+        if (timer !== undefined) clearTimeout(timer)
         this.pushWaiters.delete(key)
         const batch = this.pushed.get(key)
         this.pushed.delete(key)
@@ -449,12 +760,18 @@ class LspActionInstance {
         }
         resolve(batch ?? [])
       }
+      // A push resets the quiet period: keep collecting while the server is still talking.
+      const onPush = (): void => {
+        if (timer !== undefined) clearTimeout(timer)
+        timer = setTimeout(takeLatest, this.spec.diagnosticsDebounceMs)
+        timer.unref?.()
+      }
       if (fused.aborted) {
-        finish()
+        takeLatest()
         return
       }
-      this.pushWaiters.set(key, finish)
-      fused.addEventListener('abort', finish, { once: true })
+      this.pushWaiters.set(key, onPush)
+      fused.addEventListener('abort', takeLatest, { once: true })
     })
   }
 
@@ -464,7 +781,11 @@ class LspActionInstance {
     if (record === null || typeof record !== 'object' || typeof record.uri !== 'string') return
     let diagnostics: LspDiagnostic[]
     try {
-      diagnostics = normalizeDiagnostics(record.diagnostics)
+      const codec = this.openedDocs.get(normalizeUri(record.uri))?.codec
+      const decode = codec === undefined
+        ? undefined
+        : (position: LspPosition) => codec.decode(position, this.positionEncoding)
+      diagnostics = normalizeDiagnostics(record.diagnostics, decode)
     } catch {
       // A malformed push batch cannot fail a notification path; the next pull/settle sees no batch.
       return
@@ -480,10 +801,11 @@ class LspActionInstance {
 
   private answerServerRequest(method: string, params: unknown): Promise<unknown> {
     if (method === 'workspace/configuration') {
-      // Answer every requested item with the one static configuration value.
+      // Answer each requested item with its section value when the static configuration object
+      // carries the section; otherwise fall back to the one static value for every item.
       const record = params as { items?: unknown[] } | null
       const items = Array.isArray(record?.items) ? record.items : []
-      return Promise.resolve(items.map(() => this.spec.configuration))
+      return Promise.resolve(items.map(item => configurationSectionValue(this.spec.configuration, item)))
     }
     if (LIFECYCLE_NOOP_METHODS.has(method)) {
       // Accept lifecycle bookkeeping requests with an empty result; we register nothing dynamic.
@@ -530,6 +852,61 @@ class LspActionInstance {
 /** Mark a settled request in the cancel-grace race (either outcome means the request finished). */
 function markSettled(): boolean {
   return true
+}
+
+/** Whether a failure is the structured handshake failure the client retries once. */
+function isHandshakeServerFailure(error: unknown): boolean {
+  return error instanceof LspActionError && error.code === 'LSP_ACTION_SERVER_FAILED'
+}
+
+/** Project one normalized diagnostic back to its wire form (for code-action contexts). */
+function wireDiagnostic(
+  diagnostic: LspDiagnostic,
+  encode: ((position: LspPosition) => LspPosition) | undefined,
+): Record<string, unknown> {
+  const range = encode === undefined
+    ? diagnostic.range
+    : { start: encode(diagnostic.range.start), end: encode(diagnostic.range.end) }
+  return {
+    range,
+    severity: diagnostic.severity,
+    message: diagnostic.message,
+    ...diagnostic.source === undefined ? {} : { source: diagnostic.source },
+    ...diagnostic.code === undefined ? {} : { code: diagnostic.code },
+  }
+}
+
+/** The range of the first diagnostic, for a code-action request without an explicit range. */
+function firstDiagnosticRange(diagnostics: readonly LspDiagnostic[]): LspRange | undefined {
+  return diagnostics[0]?.range
+}
+
+/** The whole-document range, for a code-action request with neither a range nor diagnostics. */
+function documentRange(text: string): LspRange {
+  const lines = text.split('\n')
+  return {
+    start: { line: 0, character: 0 },
+    end: { line: lines.length - 1, character: (lines[lines.length - 1] ?? '').length },
+  }
+}
+
+/**
+ * The configuration answer for one `workspace/configuration` item: the named section when the
+ * static configuration is a plain object carrying it, else the whole static value (the tolerant
+ * fallback servers like tsls accept).
+ */
+function configurationSectionValue(configuration: unknown, item: unknown): unknown {
+  const section = (item as { section?: unknown } | null)?.section
+  if (
+    typeof section === 'string'
+    && configuration !== null
+    && typeof configuration === 'object'
+    && !Array.isArray(configuration)
+  ) {
+    const value = (configuration as Record<string, unknown>)[section]
+    if (value !== undefined) return value
+  }
+  return configuration
 }
 
 /** Normalize a `file:` URI for document identity: decoded path, case-folded on Windows. */

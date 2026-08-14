@@ -18,6 +18,8 @@ const DEFAULT_MAX_DOCUMENT_BYTES = 4_000_000
 const DEFAULT_KILL_GRACE_MS = 2_000
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000
 const DEFAULT_DIAGNOSTICS_SETTLE_MS = 2_000
+const DEFAULT_DIAGNOSTICS_DEBOUNCE_MS = 250
+const DEFAULT_IDLE_TIMEOUT_MS = 0
 
 /** One configured local language server and its host bounds. */
 export interface LspServerEntry {
@@ -47,6 +49,10 @@ export interface LspServerEntry {
   shutdownTimeoutMs?: number
   /** Settle window for push-only diagnostics after `didOpen` (ms). Default 2000. */
   diagnosticsSettleMs?: number
+  /** Quiet period after the last pushed batch before the client returns it (ms). Default 250. */
+  diagnosticsDebounceMs?: number
+  /** Idle time before an unused server instance is disposed (ms); 0 keeps it alive. Default 0. */
+  idleTimeoutMs?: number
 }
 
 /** Plugin configuration: a named table of local language servers plus tool result caps. */
@@ -57,6 +63,14 @@ export interface Config {
   maxDiagnostics?: number
   /** Largest number of rendered completion items before an omission marker. Default 20. */
   maxCompletionItems?: number
+  /** Largest number of rendered code actions before an omission marker. Default 50. */
+  maxCodeActions?: number
+  /** Largest number of rendered symbols before an omission marker. Default 100. */
+  maxSymbols?: number
+  /** Largest number of rendered signatures in one signature-help result. Default 10. */
+  maxSignatures?: number
+  /** Largest number of rendered inlay hints before an omission marker. Default 200. */
+  maxInlayHints?: number
   /** Largest complete rendered result in characters, including truncation metadata. Default 16000. */
   maxResultChars?: number
   /** Largest source file a tool will open for a language server (bytes). Default 4000000. */
@@ -79,12 +93,18 @@ export const LspServerEntry: z<LspServerEntry> = z.object({
   killGraceMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_KILL_GRACE_MS),
   shutdownTimeoutMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_SHUTDOWN_TIMEOUT_MS),
   diagnosticsSettleMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_DIAGNOSTICS_SETTLE_MS),
+  diagnosticsDebounceMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_DIAGNOSTICS_DEBOUNCE_MS),
+  idleTimeoutMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_IDLE_TIMEOUT_MS),
 })
 
 export const Config: z<Config> = z.object({
   servers: z.dict(LspServerEntry).default({}),
   maxDiagnostics: z.number().default(200),
   maxCompletionItems: z.number().default(20),
+  maxCodeActions: z.number().default(50),
+  maxSymbols: z.number().default(100),
+  maxSignatures: z.number().default(10),
+  maxInlayHints: z.number().default(200),
   maxResultChars: z.number().default(16_000),
   maxDocumentBytes: z.number().default(DEFAULT_MAX_DOCUMENT_BYTES),
   timeoutMs: z.number().max(MAX_TIMER_DELAY_MS).default(60_000),
@@ -140,19 +160,24 @@ export async function resolveServers(
 
 /**
  * Route one file to a server entry: entries with matching `fileGlobs` first, then entries whose
- * `extensionToLanguage` maps the file's extension, both in config order.
+ * `extensionToLanguage` maps the file's extension, both in config order. A glob route uses the
+ * file's own extension mapping when the entry maps it; the entry's first mapping is the fallback
+ * only for files whose extension the glob — not the map — selected.
  * @param servers - the resolved servers.
  * @param filePath - the source file path (absolute or workspace-relative).
  * @returns the route, or undefined when no entry handles the file.
  */
 export function routeFile(servers: readonly ResolvedServer[], filePath: string): ServerRoute | undefined {
   const normalized = filePath.replaceAll('\\', '/')
+  const extension = finalExtension(filePath)
   for (const server of servers) {
     for (const glob of server.entry.fileGlobs) {
-      if (globToRegExp(glob).test(normalized)) return { server, languageId: firstLanguageId(server) }
+      if (globToRegExp(glob).test(normalized)) {
+        const languageId = server.entry.extensionToLanguage[extension] ?? firstLanguageId(server)
+        return { server, languageId }
+      }
     }
   }
-  const extension = finalExtension(filePath)
   for (const server of servers) {
     const languageId = server.entry.extensionToLanguage[extension]
     if (languageId !== undefined) return { server, languageId }
@@ -223,6 +248,8 @@ function validateServerEntry(serverId: string, entry: ResolvedServerEntry): void
   assertServerTimer(serverId, 'killGraceMs', entry.killGraceMs)
   assertServerTimer(serverId, 'shutdownTimeoutMs', entry.shutdownTimeoutMs)
   assertServerTimer(serverId, 'diagnosticsSettleMs', entry.diagnosticsSettleMs)
+  assertServerTimer(serverId, 'diagnosticsDebounceMs', entry.diagnosticsDebounceMs)
+  assertServerNonnegativeInteger(serverId, 'idleTimeoutMs', entry.idleTimeoutMs)
   assertServerPositiveInteger(serverId, 'maxMessageBytes', entry.maxMessageBytes)
   assertServerPositiveInteger(serverId, 'maxStderrBytes', entry.maxStderrBytes)
   const extensions = Object.entries(entry.extensionToLanguage)
@@ -265,6 +292,13 @@ function assertServerTimer(serverId: string, name: string, value: number): void 
 function assertServerPositiveInteger(serverId: string, name: string, value: number): void {
   if (!Number.isInteger(value) || value < 1) {
     throw new Error(`lsp-actions: servers.${serverId}.${name} must be a positive integer`)
+  }
+}
+
+/** Reject a negative or non-integer config value at load (zero is a valid "disabled" value). */
+function assertServerNonnegativeInteger(serverId: string, name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`lsp-actions: servers.${serverId}.${name} must be a nonnegative integer`)
   }
 }
 

@@ -64,8 +64,9 @@ export async function trySeamAction(
     }, signal)
     return { ok: true, result }
   } catch (error) {
-    // An abort is the caller's own cancellation (timeout policy), not a seam capability fact.
-    if (signal?.aborted) throw error
+    // An abort is the caller's own cancellation (timeout policy), not a seam capability fact:
+    // surface the signal's reason, never the seam's unrelated error or a fallback classification.
+    if (signal?.aborted) throw signal.reason
     const code = errorCodeOf(error)
     if (code === 'LSP_UNAVAILABLE') return { ok: false, reason: 'unavailable' }
     if (code === 'LSP_UNSUPPORTED_OPERATION') return { ok: false, reason: 'unsupported' }

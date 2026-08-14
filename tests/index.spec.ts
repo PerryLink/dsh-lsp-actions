@@ -26,6 +26,8 @@ function serverEntry(command: string, extensionToLanguage: Record<string, string
     killGraceMs: 2_000,
     shutdownTimeoutMs: 2_000,
     diagnosticsSettleMs: 500,
+    diagnosticsDebounceMs: 100,
+    idleTimeoutMs: 0,
     ...overrides,
   }
 }
@@ -51,10 +53,17 @@ const baseConfig = {
   servers: {},
   maxDiagnostics: 200,
   maxCompletionItems: 20,
+  maxCodeActions: 50,
+  maxSymbols: 100,
+  maxSignatures: 10,
+  maxInlayHints: 200,
   maxResultChars: 16_000,
   maxDocumentBytes: 4_000_000,
   timeoutMs: 60_000,
 }
+
+/** The full seven-tool surface, sorted. */
+const ALL_TOOLS = ['lsp_code_action', 'lsp_completion', 'lsp_diagnostics', 'lsp_format', 'lsp_inlay_hints', 'lsp_signature', 'lsp_symbols'].sort()
 
 describe('lsp-actions apply', () => {
   it('fills every config default through the schemastery schema', () => {
@@ -62,21 +71,43 @@ describe('lsp-actions apply', () => {
       servers: {},
       maxDiagnostics: 200,
       maxCompletionItems: 20,
+      maxCodeActions: 50,
+      maxSymbols: 100,
+      maxSignatures: 10,
+      maxInlayHints: 200,
       maxResultChars: 16_000,
       maxDocumentBytes: 4_000_000,
       timeoutMs: 60_000,
     })
   })
 
-  it('contributes nothing when servers are empty and no seam is mounted', async () => {
+  it('registers all seven tools even with empty servers and no seam; calls fail loudly as unavailable', async () => {
     await apply(fake.ctx as never, baseConfig)
-    expect(fake.tools).toHaveLength(0)
+    expect(fake.tools.map(tool => tool.name).sort()).toEqual(ALL_TOOLS)
+    const tool = fake.tools.find(candidate => candidate.name === 'lsp_diagnostics')
+    if (tool === undefined) throw new Error('lsp_diagnostics was not registered')
+    await expect(tool.execute({ file_path: 'a.ts' }, fakeExec(workspace))).rejects.toThrow(
+      expect.objectContaining({ code: 'LSP_ACTION_UNAVAILABLE' }),
+    )
   })
 
-  it('registers the three tools when the official seam is mounted, even with empty servers', async () => {
+  it('registers all seven tools when the official seam is mounted, even with empty servers', async () => {
     fake = await recreate(fake, { lsp: { query: async () => ({ kind: 'diagnostics', diagnostics: [] }) } })
     await apply(fake.ctx as never, baseConfig)
-    expect(fake.tools.map(tool => tool.name).sort()).toEqual(['lsp_completion', 'lsp_diagnostics', 'lsp_format'])
+    expect(fake.tools.map(tool => tool.name).sort()).toEqual(ALL_TOOLS)
+  })
+
+  it('serves through a seam mounted after this plugin (lazy per-call seam resolution)', async () => {
+    const services: NonNullable<Parameters<typeof createFakeContext>[0]['services']> = {}
+    fake = await recreate(fake, services)
+    await apply(fake.ctx as never, baseConfig)
+    // The seam appears after apply; the next call must route through it without a reload.
+    services.lsp = { query: async () => ({ kind: 'completion', items: [{ label: 'lazy' }] }) }
+    const tool = fake.tools.find(candidate => candidate.name === 'lsp_completion')
+    if (tool === undefined) throw new Error('lsp_completion was not registered')
+    const value = await tool.execute({ file_path: 'a.ts', line: 1, character: 1 }, fakeExec(workspace)) as { kind: string }
+    expect(value.kind).toBe('completion')
+    await Promise.all(fake.disposers.map(disposer => disposer()))
   })
 
   it('fails at load when a configured command does not exist', async () => {
@@ -90,6 +121,10 @@ describe('lsp-actions apply', () => {
   it.each([
     ['maxDiagnostics', { maxDiagnostics: 0 }, /maxDiagnostics must be a positive integer/],
     ['maxCompletionItems', { maxCompletionItems: 0 }, /maxCompletionItems must be a positive integer/],
+    ['maxCodeActions', { maxCodeActions: 0 }, /maxCodeActions must be a positive integer/],
+    ['maxSymbols', { maxSymbols: 0 }, /maxSymbols must be a positive integer/],
+    ['maxSignatures', { maxSignatures: 0 }, /maxSignatures must be a positive integer/],
+    ['maxInlayHints', { maxInlayHints: 0 }, /maxInlayHints must be a positive integer/],
     ['maxResultChars', { maxResultChars: -1 }, /maxResultChars must be a positive integer/],
     ['maxDocumentBytes', { maxDocumentBytes: 0 }, /maxDocumentBytes must be a positive integer/],
     ['timeoutMs', { timeoutMs: 0 }, /timeoutMs must be a positive integer/],
@@ -116,7 +151,7 @@ describe('lsp-actions apply', () => {
       ...baseConfig,
       servers: { fixture: serverEntry(process.execPath, { '.ts': 'typescript' }, { args: [FIXTURE] }) },
     })
-    expect(fake.tools.map(tool => tool.name).sort()).toEqual(['lsp_completion', 'lsp_diagnostics', 'lsp_format'])
+    expect(fake.tools.map(tool => tool.name).sort()).toEqual(ALL_TOOLS)
     const tool = fake.tools.find(candidate => candidate.name === 'lsp_diagnostics')
     if (tool === undefined) throw new Error('lsp_diagnostics was not registered')
     const value = await tool.execute({ file_path: 'a.ts' }, fakeExec(workspace)) as {

@@ -8,8 +8,19 @@
 
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
-/** The three LSP actions this plugin exposes; navigation stays with the official `lsp` tool. */
-export type LspActionOperation = 'diagnostics' | 'formatDocument' | 'completion'
+/**
+ * The LSP actions this plugin exposes: the three core actions plus the extended read-only surface
+ * (code actions, symbols, signatures, inlay hints). Navigation stays with the official `lsp` tool.
+ */
+export type LspActionOperation =
+  | 'diagnostics'
+  | 'formatDocument'
+  | 'completion'
+  | 'codeAction'
+  | 'workspaceSymbol'
+  | 'documentSymbol'
+  | 'signatureHelp'
+  | 'inlayHint'
 
 /** A zero-based UTF-16 cursor coordinate, matching the LSP wire convention. */
 export interface LspPosition {
@@ -66,11 +77,76 @@ export interface LspCompletionItem {
   readonly sortText?: string
 }
 
+/** One normalized code action: server-verified edits per document, or a server command (never run). */
+export interface LspCodeActionItem {
+  /** The action's short title. */
+  readonly title: string
+  /** CodeActionKind, when the server sent one (e.g. `quickfix`). */
+  readonly kind?: string
+  /** The server's preferred-action marker, when sent. */
+  readonly isPreferred?: boolean
+  /** Edits grouped by target document URI; applying them is the model's own write/edit decision. */
+  readonly edits: Readonly<Record<string, readonly LspTextEdit[]>>
+  /** A server command form; the plugin never executes commands, only reports them. */
+  readonly command?: { readonly title: string; readonly command: string; readonly arguments?: unknown }
+}
+
+/** One normalized symbol (workspace or document scope). */
+export interface LspSymbol {
+  /** The symbol name. */
+  readonly name: string
+  /** SymbolKind. */
+  readonly kind: number
+  /** The symbol's location (document URI plus range). */
+  readonly location: { readonly uri: string; readonly range: LspRange }
+  /** The enclosing container, when the server named one. */
+  readonly containerName?: string
+}
+
+/** One normalized signature (signature help). */
+export interface LspSignature {
+  /** The signature's rendered label. */
+  readonly label: string
+  /** Human-readable documentation, when present. */
+  readonly documentation?: string
+  /** Per-parameter labels and documentation, when the server sent them. */
+  readonly parameters?: readonly { readonly label: string; readonly documentation?: string }[]
+}
+
+/** One normalized inlay hint (type annotations and similar server hints). */
+export interface LspInlayHint {
+  /** The position the hint annotates. */
+  readonly position: LspPosition
+  /** The rendered label. */
+  readonly label: string
+  /** InlayHintKind, when sent (1 = type, 2 = parameter). */
+  readonly kind?: number
+  /** Padding markers, verbatim from the server. */
+  readonly paddingLeft?: boolean
+  readonly paddingRight?: boolean
+}
+
 /** The closed result unions: one kind per action, matching the proposed seam vocabulary. */
 export type LspDiagnosticsResult = { readonly kind: 'diagnostics'; readonly diagnostics: readonly LspDiagnostic[] }
 export type LspEditsResult = { readonly kind: 'edits'; readonly edits: readonly LspTextEdit[] }
 export type LspCompletionResult = { readonly kind: 'completion'; readonly items: readonly LspCompletionItem[] }
-export type LspActionResult = LspDiagnosticsResult | LspEditsResult | LspCompletionResult
+export type LspCodeActionsResult = { readonly kind: 'codeActions'; readonly items: readonly LspCodeActionItem[] }
+export type LspSymbolsResult = { readonly kind: 'symbols'; readonly items: readonly LspSymbol[] }
+export type LspSignaturesResult = {
+  readonly kind: 'signatures'
+  readonly signatures: readonly LspSignature[]
+  readonly activeSignature?: number
+  readonly activeParameter?: number
+}
+export type LspInlayHintsResult = { readonly kind: 'inlayHints'; readonly items: readonly LspInlayHint[] }
+export type LspActionResult =
+  | LspDiagnosticsResult
+  | LspEditsResult
+  | LspCompletionResult
+  | LspCodeActionsResult
+  | LspSymbolsResult
+  | LspSignaturesResult
+  | LspInlayHintsResult
 
 /** Stable machine-routable codes for LSP action failures, carried on {@link LspActionError}. */
 export type LspActionErrorCode =

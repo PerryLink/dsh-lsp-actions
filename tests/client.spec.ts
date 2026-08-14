@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, writeFile, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -27,8 +27,12 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-/** A resolved server entry pointing at the fixture with the given flags. */
-function fixtureServer(flags: string[] = []): ResolvedServer {
+/** A resolved server entry pointing at the fixture with the given flags and static configuration. */
+function fixtureServer(
+  flags: string[] = [],
+  configuration: unknown = null,
+  overrides: Partial<ResolvedServerEntry> = {},
+): ResolvedServer {
   const entry: ResolvedServerEntry = {
     command: process.execPath,
     extensionToLanguage: { '.ts': 'typescript' },
@@ -36,13 +40,16 @@ function fixtureServer(flags: string[] = []): ResolvedServer {
     args: [FIXTURE, ...flags],
     env: {},
     initializationOptions: null,
-    configuration: null,
+    configuration,
     formattingOptions: null,
     maxMessageBytes: 16_000_000,
     maxStderrBytes: 1_000_000,
     killGraceMs: 2_000,
     shutdownTimeoutMs: 2_000,
     diagnosticsSettleMs: 500,
+    diagnosticsDebounceMs: 100,
+    idleTimeoutMs: 0,
+    ...overrides,
   }
   return { serverId: 'fixture', entry, executable: process.execPath }
 }
@@ -92,6 +99,107 @@ describe('LspActionClient against the fixture server', () => {
       const result = await client.diagnostics(server, request)
       expect(result.diagnostics).toHaveLength(3)
       expect(result.diagnostics[1]?.message).toBe('fixture warning')
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('returns the latest pushed batch after a partial-then-complete push, not the first', async () => {
+    const client = makeClient()
+    const { request, server } = await prepare(client, fixtureServer(['--multi-push']))
+    try {
+      const result = await client.diagnostics(server, request)
+      expect(result.diagnostics).toHaveLength(3)
+      expect(result.diagnostics[1]?.message).toBe('fixture warning')
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('rejects diagnostics on a server whose textDocumentSync excludes transient open', async () => {
+    const client = makeClient()
+    const { request, server } = await prepare(client, fixtureServer(['--sync-none']))
+    try {
+      await expect(client.diagnostics(server, request)).rejects.toThrow(
+        expect.objectContaining({ code: 'LSP_ACTION_UNSUPPORTED' }),
+      )
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('answers workspace/configuration per section, falling back to the whole value', async () => {
+    const client = makeClient()
+    const configuration = { typescript: { format: 'x' }, python: 'py' }
+    const { request, server } = await prepare(client, fixtureServer(['--ask-config'], configuration))
+    try {
+      const result = await client.diagnostics(server, request)
+      expect(result.diagnostics[0]?.message).toContain('[config:{"format":"x"}]')
+      expect(result.diagnostics[1]?.message).toContain('[config:"py"]')
+      // The unmapped section falls back to the whole static value.
+      expect(result.diagnostics[2]?.message).toContain('[config:{"typescript":{"format":"x"},"python":"py"}]')
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('retries a fresh spawn once when the first instance dies during handshake', async () => {
+    const client = makeClient()
+    const marker = join(root, 'retry-marker')
+    const { request, server } = await prepare(client, fixtureServer(['--fail-first-time', marker]))
+    try {
+      const result = await client.diagnostics(server, request)
+      expect(result.diagnostics).toHaveLength(3)
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('evicts an idle instance after idleTimeoutMs and spawns fresh for the next call', async () => {
+    const client = makeClient()
+    const marker = join(root, 'spawn-count.txt')
+    const { request, server } = await prepare(client, fixtureServer(['--count-spawns', marker], null, { idleTimeoutMs: 60 }))
+    try {
+      const first = await client.diagnostics(server, request)
+      expect(first.diagnostics).toHaveLength(3)
+      await new Promise(resolve => setTimeout(resolve, 250))
+      const second = await client.diagnostics(server, request)
+      expect(second.diagnostics).toHaveLength(3)
+      expect((await readFile(marker, 'utf8')).trim().split('\n')).toHaveLength(2)
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('negotiates utf-8 positions: encodes request cursors and decodes pull results', async () => {
+    const client = makeClient()
+    await writeFile(join(workspace, 'u.ts'), 'alpha\n😀xx\n')
+    const hostWorkspace = await canonicalizeWorkspace(fs, workspace)
+    const source = await readHostSource(fs, 'u.ts', hostWorkspace, 4_000_000)
+    const request = { filePath: 'u.ts', workspaceRoot: workspace, source, languageId: 'typescript' }
+    const server = fixtureServer(['--utf8'])
+    try {
+      // Server-side range characters 4..6 (utf-8 bytes, past the 4-byte emoji) decode to utf-16 2..4.
+      const diagnostics = await client.diagnostics(server, request)
+      expect(diagnostics.diagnostics[0]?.range).toEqual({ start: { line: 1, character: 2 }, end: { line: 1, character: 4 } })
+      // The utf-16 cursor at character 3 is sent as utf-8 byte 5 and echoed back by the fixture.
+      const completion = await client.completion(server, { ...request, position: { line: 1, character: 3 } })
+      expect(completion.items[0]?.textEdit?.range.start.character).toBe(3)
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('decodes pushed utf-8 diagnostics through the opened document text', async () => {
+    const client = makeClient()
+    await writeFile(join(workspace, 'u.ts'), 'alpha\n😀xx\n')
+    const hostWorkspace = await canonicalizeWorkspace(fs, workspace)
+    const source = await readHostSource(fs, 'u.ts', hostWorkspace, 4_000_000)
+    const request = { filePath: 'u.ts', workspaceRoot: workspace, source, languageId: 'typescript' }
+    const server = fixtureServer(['--utf8', '--push-diag'])
+    try {
+      const diagnostics = await client.diagnostics(server, request)
+      expect(diagnostics.diagnostics[0]?.range).toEqual({ start: { line: 1, character: 2 }, end: { line: 1, character: 4 } })
     } finally {
       await client.disposeAll()
     }
@@ -171,6 +279,27 @@ describe('LspActionClient against the fixture server', () => {
       await expect(client.formatDocument(server, request)).rejects.toThrow(
         expect.objectContaining({ code: 'LSP_ACTION_MALFORMED_RESPONSE' }),
       )
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('surfaces a server error response on a rejected request', async () => {
+    const client = makeClient()
+    const { request, server } = await prepare(client, fixtureServer(['--reject-format']))
+    try {
+      await expect(client.formatDocument(server, request)).rejects.toThrow(/formatting refused by the fixture/)
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('answers lifecycle server requests and refuses workspace/applyEdit without breaking the stream', async () => {
+    const client = makeClient()
+    const { request, server } = await prepare(client, fixtureServer(['--server-requests']))
+    try {
+      const result = await client.diagnostics(server, request)
+      expect(result.diagnostics).toHaveLength(3)
     } finally {
       await client.disposeAll()
     }

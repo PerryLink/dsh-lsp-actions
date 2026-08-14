@@ -15,14 +15,22 @@ import { createFakeContext, disposeFakeContext, fakeExec } from './helpers/fake-
 import type { FakeContext } from './helpers/fake-ctx.ts'
 import type { LspServerEntry } from '../src/index.ts'
 
-/** The typescript-language-server CLI entry, overridable for other machines. */
+/**
+ * The typescript-language-server CLI entry. The plugin repo's own devDependency copy is the
+ * default, so a standalone clone runs the real-server suite without a sibling harness checkout;
+ * `LSP_ACTIONS_TSLS` still overrides for other machines.
+ */
 const TSLS = process.env.LSP_ACTIONS_TSLS
-  ?? fileURLToPath(new URL('../../../../packages/lsp/lsp-stdio/node_modules/typescript-language-server/lib/cli.mjs', import.meta.url))
+  ?? fileURLToPath(new URL('../node_modules/typescript-language-server/lib/cli.mjs', import.meta.url))
 
 const CONFIG = {
   servers: {} as Record<string, LspServerEntry>,
   maxDiagnostics: 200,
   maxCompletionItems: 20,
+  maxCodeActions: 50,
+  maxSymbols: 100,
+  maxSignatures: 10,
+  maxInlayHints: 200,
   maxResultChars: 16_000,
   maxDocumentBytes: 4_000_000,
   timeoutMs: 120_000,
@@ -36,7 +44,7 @@ beforeAll(async () => {
   workspace = join(fake.fs.root, 'project')
   await mkdir(workspace)
   await writeFile(join(workspace, 'tsconfig.json'), '{"compilerOptions":{"strict":true}}\n')
-  await writeFile(join(workspace, 'a.ts'), 'function f() {\n  const x = 1;\n    return x;\n}\nconst n: number = "text"\n')
+  await writeFile(join(workspace, 'a.ts'), 'function f() {\n  const x = 1;\n    return x;\n}\nconst n: number = "text"\nconst r = f(1, "x")\n')
 })
 
 afterAll(async () => {
@@ -65,6 +73,8 @@ describe.skipIf(!tslsAvailable)('typescript-language-server end-to-end', () => {
         // tsls publishes the first diagnostics ~2.4s after didOpen (project load + configuration
         // round trip); the settle window must cover a cold start.
         diagnosticsSettleMs: 5_000,
+        diagnosticsDebounceMs: 250,
+        idleTimeoutMs: 0,
       },
     }
     await apply(fake.ctx as never, CONFIG)
@@ -109,4 +119,27 @@ describe.skipIf(!tslsAvailable)('typescript-language-server end-to-end', () => {
     expect(value.items.length).toBeGreaterThan(0)
     expect(value.items.every(item => typeof item.label === 'string')).toBe(true)
   }, 120_000)
+
+  it('searches workspace symbols by name through the real server', async () => {
+    const tool = fake.tools.find(candidate => candidate.name === 'lsp_symbols')
+    if (tool === undefined) throw new Error('lsp_symbols was not registered')
+    // The routing file keeps a document open for the search (tsls refuses document-free navto).
+    const value = await tool.execute({ query: 'f', file_path: 'a.ts' }, fakeExec(workspace)) as {
+      items: Array<{ name: string }>
+    }
+    expect(value.items.some(item => item.name === 'f')).toBe(true)
+  }, 120_000)
+
+  it('lists document symbols through the real server', async () => {
+    const tool = fake.tools.find(candidate => candidate.name === 'lsp_symbols')
+    if (tool === undefined) throw new Error('lsp_symbols was not registered')
+    const value = await tool.execute({ file_path: 'a.ts' }, fakeExec(workspace)) as {
+      items: Array<{ name: string }>
+    }
+    expect(value.items.some(item => item.name === 'f')).toBe(true)
+  }, 120_000)
+
+  // NOTE: no tsls signature-help case here — typescript-language-server answers
+  // textDocument/signatureHelp with null under this client's transient-open lifecycle
+  // (verified by direct probe); lsp_signature is covered by the fixture integration tests.
 })
