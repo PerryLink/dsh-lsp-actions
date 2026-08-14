@@ -29,6 +29,8 @@
 
 **路径二（兜底，已实现为插件的内置 client）**：PR 合入周期不可控，插件自带最小 LSP 客户端（`src/client.ts` 等：`ctx.subprocess.spawn` + stdio JSON-RPC，可执行路径走 Config `servers` 表，不硬编码），实现同样的三个工具。README 明确"待 seam 扩展 PR 合入后迁移到 ctx.lsp"。
 
+**提案提交流程（2026-08-14 实测）**：上游仓库关闭了 issues（`has_issues=false`），GitHub 因此**禁用 PR 功能**（pulls 端点整体 404）。提案已改道提交到官方 **GitHub Discussions #781**（Ideas 分类）：https://github.com/deepseek-ai/deepseek-harness/discussions/781 —— 文中附了 fork 分支（`PerryLink/deepseek-harness:agent/lsp-action-seam`，提交 7f10651，门禁全绿）、补丁文件与本插件的链接；上游开启 PR 后可直接把该分支开成 PR。
+
 **混合架构（本插件实际形态）**：每次动作调用 **seam 优先、自带 client 兜底**（`src/runner.ts`）：
 
 1. `ctx.lsp` 已挂载 → 尝试 seam.query；成功即返回。
