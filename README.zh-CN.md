@@ -37,7 +37,13 @@
 ## 快速开始
 
 ```sh
-dsh plugin --profile <name> add <path-or-tarball-of-dsh-lsp-actions>
+dsh plugin --profile <name> add dsh-lsp-actions
+```
+
+卸载：
+
+```sh
+dsh plugin --profile <name> remove dsh-lsp-actions
 ```
 
 每个语言服务器配一条 entry（形态与官方 `lsp-stdio` 配置一致）：
@@ -154,7 +160,7 @@ interface LspServerEntry {
 
 ### 宿主版本支持
 
-插件把 DeepSeek Harness 各包声明为 **peerDependencies**（`@deepseek-ai/dsh-fs`、`dsh-llm`、`dsh-sandbox`、`dsh-subprocess`、`dsh-tools` ≥ `0.1.0-rc.6`），宿主与插件共享同一份副本。已在 `0.1.0-rc.6` 上实测。
+插件把 DeepSeek Harness 各包声明为 **peerDependencies**（`@deepseek-ai/dsh-fs`、`dsh-llm`、`dsh-sandbox`、`dsh-subprocess`、`dsh-tools` ≥ `0.1.0-rc.6`），宿主与插件共享同一份副本。已在 `0.1.0-rc.6` 上实测，最后验证日期 2026-08-15。
 
 ### 已知限制
 

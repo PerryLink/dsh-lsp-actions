@@ -39,7 +39,13 @@ The official DeepSeek Harness `ctx.lsp` seam covers **navigation** (go-to-defini
 ## Quick start
 
 ```sh
-dsh plugin --profile <name> add <path-or-tarball-of-dsh-lsp-actions>
+dsh plugin --profile <name> add dsh-lsp-actions
+```
+
+Remove it with:
+
+```sh
+dsh plugin --profile <name> remove dsh-lsp-actions
 ```
 
 Configure one entry per language server (the shape mirrors the official `lsp-stdio` config):
@@ -156,7 +162,7 @@ Every failure carries a stable `code` on the error result; models and callers ro
 
 ### Host version support
 
-The plugin declares its DeepSeek Harness packages as **peer dependencies** (`@deepseek-ai/dsh-fs`, `dsh-llm`, `dsh-sandbox`, `dsh-subprocess`, `dsh-tools` ≥ `0.1.0-rc.6`), so one copy serves both the host and the plugin. Tested against `0.1.0-rc.6`.
+The plugin declares its DeepSeek Harness packages as **peer dependencies** (`@deepseek-ai/dsh-fs`, `dsh-llm`, `dsh-sandbox`, `dsh-subprocess`, `dsh-tools` ≥ `0.1.0-rc.6`), so one copy serves both the host and the plugin. Tested against `0.1.0-rc.6`; last verified 2026-08-15.
 
 ### Known limitations
 
