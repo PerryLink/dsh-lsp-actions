@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest an improvement for dsh-lsp-actions
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What problem would this solve for you or for users of the plugin?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What the new or changed behavior should look like.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered (optional)
+      description: Workarounds or alternative designs you have already considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context (optional)
+      description: Anything else that helps evaluate the request (links, screenshots, related discussions).

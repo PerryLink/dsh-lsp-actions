@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a bug in dsh-lsp-actions
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      description: The dsh-lsp-actions version you are running (`npm ls dsh-lsp-actions`).
+      placeholder: e.g. 0.2.0
+    validations:
+      required: true
+  - type: input
+    id: harness-version
+    attributes:
+      label: DeepSeek Harness version
+      description: The harness runtime the plugin runs on.
+      placeholder: e.g. @deepseek-ai/dsh 0.1.0-rc.6
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and Node version
+      description: Operating system and Node.js version.
+      placeholder: e.g. Windows 11, Node 22.14.0
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Ordered, minimal steps that reproduce the problem (tool, arguments, configuration).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead, including error codes (e.g. LSP_ACTION_*) and messages.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (optional)
+      description: >
+        **⚠️ Sanitize before pasting: remove all tokens, API keys, credentials, and request
+        headers (such as `Authorization`) before submitting. Never include secrets.**
+      render: text
