@@ -60,13 +60,14 @@
 | 诊断/补全不落持久层、不跨会话缓存 | 工具结果只进会话日志（模型历史本身）；无任何磁盘/内存缓存；不提供 cache 开关（更严格地满足"除非 Config 显式开启"） |
 | `servers` 配置形态与官方对齐 | `command`/`args`/`env`/`extensionToLanguage`/`initializationOptions`/`configuration`/字节上限/计时器字段与 `lsp-stdio` 同名同默认；另加 `fileGlobs`（glob 优先于扩展名）与 `formattingOptions`/`diagnosticsSettleMs`；`maxDocumentBytes` 因读取发生在上具层而提升为插件级 Config（文档已注明偏差） |
 
-### 4.1 权限矩阵（`lsp_format`）
+### 4.1 权限矩阵（`lsp_format` / `lsp_rename`）
 
 - 裸 fs（无 sandboxMode）→ 无 policy，走无条件写（与官方 `write` 工具语义一致）。
 - 约束型 fs 后端 + 会话 `read-only` → **在任何服务器往返之前**抛 `LspActionError('LSP_ACTION_READ_ONLY')`，文本为共享的 `[sandbox: file access denied under read-only mode]` + 同轮升级提示。
 - 升级：`sandbox_permissions`/`justification` 参数对（仅约束后端下广告），经 `@deepseek-ai/dsh-sandbox` 的 `approveEscalation` 严格放宽（read-only → workspace-write → danger-full-access），与 `dsh-tool-fs` 的 write/edit 完全同源。
 - 写时拒绝（FS_SANDBOX_DENIED）→ 映射为共享 `[sandbox: …]` 标记（保留结构化 code）。
 - 格式冲突：重叠 edits 或越界 edits → `LSP_ACTION_CONFLICT`；磁盘内容在读后被改（`replaceIfVersion` → `FS_STALE_VERSION` / `FS_NOT_OBSERVED`）→ `LSP_ACTION_CONFLICT`，错误文本提示模型**选择**：重读后重跑，或用 edit/write 手工应用 diff。
+- `lsp_rename` 在同一矩阵上再叠加一道**写入前预检**：每个目标文档先做工作区包含性校验（越出工作区 → `LSP_ACTION_CONFLICT`，任何字节写出前失败）、重叠检查与字节上限读取，无实际变化的文件不进入写入计划；非 utf-16 服务器的跨文件位置按文档解码（需读取每个被编辑文件，不可读 → 结构化冲突）。
 
 ## 5. 已知取舍
 

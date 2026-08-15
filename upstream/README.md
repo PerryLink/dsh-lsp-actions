@@ -33,8 +33,10 @@ here.
    `src/client.ts` internals in favor of `@deepseek-ai/dsh-lsp-stdio`'s host — the built-in
    client mirrors it, so the swap is contained to `client.ts` and `connection.ts`.
 4. New extended operations (`codeAction`, `workspaceSymbol`, `documentSymbol`, `signatureHelp`,
-   `inlayHint`) ride the built-in client today; propose them as a second upstream vocabulary
-   extension when the first lands.
+   `inlayHint`, `rename`) ride the built-in client today; propose them as a second upstream
+   vocabulary extension when the first lands. The seam query already forwards their
+   operation-specific extras (`query`, `onlyKinds`, `newName`) structurally, so the seam union is
+   the only thing a second proposal must extend.
 
 ## Files
 

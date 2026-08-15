@@ -4,10 +4,12 @@
 
 **The LSP action surface for DeepSeek Harness — real language servers, real feedback.**
 
-Diagnostics, formatting, code completion, quickfixes, symbols, signature help, and inlay hints for your agent's editor loop, powered by the same language servers your IDE uses.
+Diagnostics, formatting, code completion, quickfixes, symbols, signature help, inlay hints, and workspace-wide rename for your agent's editor loop, powered by the same language servers your IDE uses.
 
 [![Topic: dsh](https://img.shields.io/badge/Topic-dsh-4D6BFE?style=for-the-badge)](https://github.com/topics/dsh)
 [![Topic: dsh-plugin](https://img.shields.io/badge/Topic-dsh--plugin-8257D0?style=for-the-badge)](https://github.com/topics/dsh-plugin)
+[![CI](https://github.com/PerryLink/dsh-lsp-actions/actions/workflows/ci.yml/badge.svg)](https://github.com/PerryLink/dsh-lsp-actions/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/dsh-lsp-actions?style=flat-square)](https://www.npmjs.com/package/dsh-lsp-actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-D22128?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/Node-%5E22.19%20%7C%7C%20%3E%3D24-43853D?style=flat-square)](package.json)
 
@@ -30,8 +32,9 @@ The official DeepSeek Harness `ctx.lsp` seam covers **navigation** (go-to-defini
 | `lsp_symbols <query?> <file_path?>` | Workspace-wide symbol search by name, or one file's symbol outline | ❌ read-only |
 | `lsp_signature <file> <line> <character>` | Signature help (parameters and documentation) inside a call | ❌ read-only |
 | `lsp_inlay_hints <file> [range?]` | Type annotations and parameter-name hints from the server | ❌ read-only |
+| `lsp_rename <file> <line> <character> <new_name>` | Server-verified symbol rename, applied workspace-wide with per-file diffs | ✅ via `fs/write-intent` + sandbox policy |
 
-> ✨ A real `typescript-language-server` run is part of the test suite: diagnostics, formatting, completion, and symbol search are verified end-to-end against a live server, not just mocks. The suite is self-contained (tsls is a devDependency) and runs in CI on Node 22/24 across Linux, Windows, and macOS.
+> ✨ A real `typescript-language-server` run is part of the test suite: diagnostics, formatting, completion, symbol search, and rename are verified end-to-end against a live server, not just mocks. The suite is self-contained (tsls is a devDependency) and runs in CI on Node 22/24 across Linux, Windows, and macOS.
 
 ## Quick start
 
@@ -70,14 +73,14 @@ Configure one entry per language server (the shape mirrors the official `lsp-std
         timeoutMs: 60000
 ```
 
-The seven tools are always registered. With an **empty `servers` table and no `ctx.lsp` seam mounted, calls fail loudly** with `LSP_ACTION_UNAVAILABLE` telling the user what to configure — the plugin never starts servers you did not configure. A `ctx.lsp` seam mounted **after** this plugin is picked up on the next call (seam detection is per-call, so load order does not matter).
+The eight tools are always registered. With an **empty `servers` table and no `ctx.lsp` seam mounted, calls fail loudly** with `LSP_ACTION_UNAVAILABLE` telling the user what to configure — the plugin never starts servers you did not configure. A `ctx.lsp` seam mounted **after** this plugin is picked up on the next call (seam detection is per-call, so load order does not matter).
 
 ## Why it is safe by construction
 
-- **Formatting is a real mutation, treated like `write`/`edit`.** Every byte goes through the `fs/write-intent` waterfall (observation → guarded write → observation) and the per-call sandbox policy.
+- **Formatting and rename are real mutations, treated like `write`/`edit`.** Every byte goes through the `fs/write-intent` waterfall (observation → guarded write → observation) and the per-call sandbox policy. `lsp_rename` pre-flights every edited file (workspace containment, overlap check, byte-capped read) *before* the first write, so a bad server response cannot leave a half-applied rename.
 - **Everything else is read-only by design.** Code actions, completions, symbols, signatures, and hints are reported as reference material; applying them is the model's own write/edit decision. Command forms are reported and **never executed**.
 - **Read-only sessions fail loud, fast, and structured** — `LSP_ACTION_READ_ONLY` with the shared `[sandbox: …]` marker, raised *before* any server round-trip.
-- **Escalation matches the official tools.** Under a confining filesystem, `lsp_format` advertises the same `sandbox_permissions` / `justification` one-shot retry as `write`/`edit`, resolved through `ctx.approval`.
+- **Escalation matches the official tools.** Under a confining filesystem, `lsp_format` and `lsp_rename` advertise the same `sandbox_permissions` / `justification` one-shot retry as `write`/`edit`, resolved through `ctx.approval`.
 - **Conflicts never clobber.** If the file changed on disk after it was read, the guarded write fails with `LSP_ACTION_CONFLICT` and the model is told to choose: re-read and re-run, or apply the diff manually.
 - **Timeouts are the platform's.** Each tool declares `timeoutMs`; the official `dsh-tool-call-timeout-policy` enforces it, and every await honors `exec.signal`.
 - **Nothing is cached.** Results live only in the session log; there is no cross-session persistence.
@@ -89,7 +92,7 @@ Actions run **official-seam-first** and fall back to the plugin's own minimal st
 
 ```
 lsp_diagnostics / lsp_format / lsp_completion / lsp_code_action /
-lsp_symbols / lsp_signature / lsp_inlay_hints
+lsp_symbols / lsp_signature / lsp_inlay_hints / lsp_rename
         │
         ▼
    ctx.lsp seam (extended: diagnostics / formatDocument / completion)
@@ -146,9 +149,10 @@ Every failure carries a stable `code` on the error result; models and callers ro
 | `LSP_ACTION_UNSUPPORTED` | The server (or seam provider) does not advertise the operation. |
 | `LSP_ACTION_SERVER_FAILED` | The server failed (with its stderr tail); startup failures retry once. |
 | `LSP_ACTION_MALFORMED_RESPONSE` | The server sent a structurally invalid payload. |
-| `LSP_ACTION_CONFLICT` | The file changed since it was read, or the server's edits overlap / go out of bounds. |
-| `LSP_ACTION_READ_ONLY` | The session's sandbox mode forbids the formatting write. |
+| `LSP_ACTION_CONFLICT` | The file changed since it was read, or the server's edits overlap / go out of bounds / leave the workspace. |
+| `LSP_ACTION_READ_ONLY` | The session's sandbox mode forbids the formatting/rename write. |
 | `LSP_ACTION_WORKSPACE_REQUIRED` | The calling session has no workspace cwd to root the server in. |
+| `LSP_ACTION_NO_SYMBOL` | The server found no renameable symbol at the cursor position. |
 
 ### Host version support
 
@@ -158,16 +162,21 @@ The plugin declares its DeepSeek Harness packages as **peer dependencies** (`@de
 
 - **Transient documents.** Every action opens the file, runs one request, and closes it again (matching the official stdio host). Project-based servers that require a resident open file for document-free requests (tsls refuses `workspace/symbol` without one) are served by passing `file_path` to `lsp_symbols`, which keeps the routing file open for that request. tsls also answers `textDocument/signatureHelp` with `null` under this lifecycle; other servers (gopls, pyright, rust-analyzer) serve it normally.
 - **Range formatting requires the server's range provider.** Servers that only advertise whole-document formatting fail range requests with `LSP_ACTION_UNSUPPORTED`.
+- **Rename applies text edits only.** Resource operations (create/delete/rename files) in a server's rename answer are refused with `LSP_ACTION_UNSUPPORTED`, and edits outside the workspace fail as `LSP_ACTION_CONFLICT` before anything is written. On `utf-8`/`utf-32` servers, cross-file rename positions are decoded by reading each edited file; an unreadable edited file fails the call as a conflict instead of mis-decoding positions.
 
 ## Development
 
 ```sh
 pnpm install
 pnpm run lint        # oxlint over src/ and tests/
-pnpm test            # 200+ tests: unit + fixture-server integration + real tsls e2e
+pnpm test            # 240+ tests: unit + fixture-server integration + real tsls e2e
 pnpm run test:coverage   # gates: lines/statements/functions ≥ 90%, branches ≥ 85%
 pnpm build           # emits lib/
 ```
+
+### Releasing
+
+CI runs the lint/build/test matrix plus the coverage gate on every push and pull request. Pushing a `v*` tag triggers the publish workflow, which verifies the suite and publishes the package to npm — it needs an `NPM_TOKEN` Actions secret (a publish-scoped npm access token) set once on the repository. The version is bumped manually in `package.json`/`CHANGELOG.md` before tagging.
 
 ## License
 

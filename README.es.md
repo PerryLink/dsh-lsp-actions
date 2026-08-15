@@ -30,8 +30,9 @@ El seam oficial `ctx.lsp` de DeepSeek Harness cubre la **navegación** (ir a def
 | `lsp_symbols <query?> <file_path?>` | Búsqueda de símbolos por nombre en todo el workspace, o el esquema de símbolos de un archivo | ❌ solo lectura |
 | `lsp_signature <file> <line> <character>` | Ayuda de firmas (parámetros y documentación) dentro de una llamada | ❌ solo lectura |
 | `lsp_inlay_hints <file> [range?]` | Anotaciones de tipo y sugerencias de nombres de parámetros del servidor | ❌ solo lectura |
+| `lsp_rename <file> <line> <character> <new_name>` | Renombrado de símbolo verificado por el servidor, aplicado en todo el workspace con diffs por archivo | ✅ vía `fs/write-intent` + política sandbox |
 
-> ✨ Una ejecución real de `typescript-language-server` forma parte de la suite de tests: diagnósticos, formateo, completado y búsqueda de símbolos se verifican de extremo a extremo contra un servidor vivo, no solo con mocks. La suite es autocontenida (tsls es una devDependency) y corre en CI con Node 22/24 en Linux, Windows y macOS.
+> ✨ Una ejecución real de `typescript-language-server` forma parte de la suite de tests: diagnósticos, formateo, completado, búsqueda de símbolos y renombrado se verifican de extremo a extremo contra un servidor vivo, no solo con mocks. La suite es autocontenida (tsls es una devDependency) y corre en CI con Node 22/24 en Linux, Windows y macOS.
 
 ## Inicio rápido
 
@@ -70,14 +71,14 @@ Configura una entrada por servidor de lenguaje (la forma replica la configuraci�
         timeoutMs: 60000
 ```
 
-Las siete herramientas se registran siempre. Con una **tabla `servers` vacía y ningún seam `ctx.lsp` montado, las llamadas fallan en voz alta** con `LSP_ACTION_UNAVAILABLE` indicando qué configurar — el plugin nunca arranca servidores que no configuraste. Un seam `ctx.lsp` montado **después** de este plugin se detecta en la siguiente llamada (la detección del seam es por llamada, así que el orden de carga no importa).
+Las ocho herramientas se registran siempre. Con una **tabla `servers` vacía y ningún seam `ctx.lsp` montado, las llamadas fallan en voz alta** con `LSP_ACTION_UNAVAILABLE` indicando qué configurar — el plugin nunca arranca servidores que no configuraste. Un seam `ctx.lsp` montado **después** de este plugin se detecta en la siguiente llamada (la detección del seam es por llamada, así que el orden de carga no importa).
 
 ## Por qué es seguro por construcción
 
-- **El formateo es una mutación real, tratada como `write`/`edit`.** Cada byte pasa por el waterfall `fs/write-intent` (observación → escritura protegida → observación) y por la política sandbox de cada llamada.
+- **El formateo y el renombrado son mutaciones reales, tratadas como `write`/`edit`.** Cada byte pasa por el waterfall `fs/write-intent` (observación → escritura protegida → observación) y por la política sandbox de cada llamada. `lsp_rename` pre-vuela cada archivo editado (contención en el workspace, comprobación de solapamientos, lectura con tope de bytes) *antes* de la primera escritura, de modo que una respuesta mala del servidor no puede dejar un renombrado a medio aplicar.
 - **Todo lo demás es de solo lectura por diseño.** Las acciones de código, completados, símbolos, firmas y sugerencias se reportan como material de referencia; aplicarlas es decisión propia del modelo con write/edit. Las formas de comando se reportan y **nunca se ejecutan**.
 - **Las sesiones de solo lectura fallan en voz alta, rápido y estructurado** — `LSP_ACTION_READ_ONLY` con el marcador compartido `[sandbox: …]`, lanzado *antes* de cualquier ida y vuelta con el servidor.
-- **La escalada coincide con las herramientas oficiales.** Bajo un sistema de archivos restrictivo, `lsp_format` anuncia el mismo reintento único `sandbox_permissions` / `justification` que `write`/`edit`, resuelto mediante `ctx.approval`.
+- **La escalada coincide con las herramientas oficiales.** Bajo un sistema de archivos restrictivo, `lsp_format` y `lsp_rename` anuncian el mismo reintento único `sandbox_permissions` / `justification` que `write`/`edit`, resuelto mediante `ctx.approval`.
 - **Los conflictos nunca pisan nada.** Si el archivo cambió en disco después de leerse, la escritura protegida falla con `LSP_ACTION_CONFLICT` y se le dice al modelo que elija: releer y repetir, o aplicar el diff manualmente.
 - **Los timeouts son de la plataforma.** Cada herramienta declara `timeoutMs`; la política oficial `dsh-tool-call-timeout-policy` lo hace cumplir, y cada await respeta `exec.signal`.
 - **No se cachea nada.** Los resultados viven solo en el log de sesión; no hay persistencia entre sesiones.
@@ -89,7 +90,7 @@ Las acciones van **primero por el seam oficial** y caen al cliente stdio mínimo
 
 ```
 lsp_diagnostics / lsp_format / lsp_completion / lsp_code_action /
-lsp_symbols / lsp_signature / lsp_inlay_hints
+lsp_symbols / lsp_signature / lsp_inlay_hints / lsp_rename
         │
         ▼
    ctx.lsp seam (extendido: diagnostics / formatDocument / completion)
@@ -146,9 +147,10 @@ Cada fallo lleva un `code` estable en el resultado de error; los modelos y llama
 | `LSP_ACTION_UNSUPPORTED` | El servidor (o el provider del seam) no anuncia la operación. |
 | `LSP_ACTION_SERVER_FAILED` | El servidor falló (con la cola de su stderr); los fallos de arranque reintentan una vez. |
 | `LSP_ACTION_MALFORMED_RESPONSE` | El servidor envió una carga estructuralmente inválida. |
-| `LSP_ACTION_CONFLICT` | El archivo cambió desde que se leyó, o las ediciones del servidor se solapan / salen de límites. |
-| `LSP_ACTION_READ_ONLY` | El modo sandbox de la sesión prohíbe la escritura del formateo. |
+| `LSP_ACTION_CONFLICT` | El archivo cambió desde que se leyó, o las ediciones del servidor se solapan / salen de límites / salen del workspace. |
+| `LSP_ACTION_READ_ONLY` | El modo sandbox de la sesión prohíbe la escritura del formateo/renombrado. |
 | `LSP_ACTION_WORKSPACE_REQUIRED` | La sesión que llama no tiene un cwd de workspace donde enraizar el servidor. |
+| `LSP_ACTION_NO_SYMBOL` | El servidor no encontró un símbolo renombrable en la posición del cursor. |
 
 ### Versión de host soportada
 
@@ -158,13 +160,14 @@ El plugin declara los paquetes de DeepSeek Harness como **peer dependencies** (`
 
 - **Documentos transitorios.** Cada acción abre el archivo, ejecuta una petición y lo cierra de nuevo (igual que el host stdio oficial). Los servidores basados en proyecto que exigen un archivo abierto residente para peticiones sin documento (tsls rechaza `workspace/symbol` sin uno) se sirven pasando `file_path` a `lsp_symbols`, que mantiene el archivo de enrutamiento abierto durante esa petición. tsls también responde `textDocument/signatureHelp` con `null` bajo este ciclo de vida; otros servidores (gopls, pyright, rust-analyzer) lo sirven con normalidad.
 - **El formateo de rango exige el provider de rango del servidor.** Los servidores que solo anuncian formateo de documento completo fallan las peticiones de rango con `LSP_ACTION_UNSUPPORTED`.
+- **El renombrado solo aplica ediciones de texto.** Las operaciones de recursos (crear/borrar/renombrar archivos) en la respuesta de renombrado del servidor se rechazan con `LSP_ACTION_UNSUPPORTED`, y las ediciones fuera del workspace fallan con `LSP_ACTION_CONFLICT` antes de escribir nada. En servidores `utf-8`/`utf-32`, las posiciones de renombrado entre archivos se decodifican leyendo cada archivo editado; un archivo editado ilegible falla la llamada como conflicto en lugar de decodificar mal las posiciones.
 
 ## Desarrollo
 
 ```sh
 pnpm install
 pnpm run lint        # oxlint sobre src/ y tests/
-pnpm test            # más de 200 tests: unidad + integración con servidor fixture + e2e real con tsls
+pnpm test            # más de 240 tests: unidad + integración con servidor fixture + e2e real con tsls
 pnpm run test:coverage   # puertas: líneas/sentencias/funciones ≥ 90%, ramas ≥ 85%
 pnpm build           # emite lib/
 ```

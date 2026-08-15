@@ -1,5 +1,5 @@
 # LSP action surface: diagnostics, formatting, completion, code actions, symbols, signature
-# help, and inlay hints over language servers.
+# help, inlay hints, and rename over language servers.
 # Default config activates no servers (empty table); add one entry per language server.
 - insert:
     - id: lsp-actions

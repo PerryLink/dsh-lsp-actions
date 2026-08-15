@@ -30,8 +30,9 @@
 | `lsp_symbols <query?> <file_path?>` | नाम से पूरे workspace में सिंबल खोज, या एक फ़ाइल की सिंबल रूपरेखा | ❌ केवल-पठन |
 | `lsp_signature <file> <line> <character>` | कॉल के अंदर सिग्नेचर हेल्प (पैरामीटर और दस्तावेज़ीकरण) | ❌ केवल-पठन |
 | `lsp_inlay_hints <file> [range?]` | server के टाइप एनोटेशन और पैरामीटर-नाम संकेत | ❌ केवल-पठन |
+| `lsp_rename <file> <line> <character> <new_name>` | server-सत्यापित सिंबल नाम बदलना, पूरे workspace में प्रति-फ़ाइल diffs के साथ लागू | ✅ `fs/write-intent` + sandbox नीति से |
 
-> ✨ टेस्ट सूट में एक असली `typescript-language-server` रन शामिल है: डायग्नोस्टिक्स, फ़ॉर्मेटिंग, कम्प्लीशन और सिंबल खोज एक जीवित server के ख़िलाफ़ end-to-end सत्यापित होते हैं, सिर्फ़ mocks से नहीं। सूट आत्मनिर्भर है (tsls एक devDependency है) और CI में Node 22/24 पर Linux, Windows और macOS में चलती है।
+> ✨ टेस्ट सूट में एक असली `typescript-language-server` रन शामिल है: डायग्नोस्टिक्स, फ़ॉर्मेटिंग, कम्प्लीशन, सिंबल खोज और रिनेम एक जीवित server के ख़िलाफ़ end-to-end सत्यापित होते हैं, सिर्फ़ mocks से नहीं। सूट आत्मनिर्भर है (tsls एक devDependency है) और CI में Node 22/24 पर Linux, Windows और macOS में चलती है।
 
 ## त्वरित शुरुआत
 
@@ -70,14 +71,14 @@ dsh plugin --profile <name> add <path-or-tarball-of-dsh-lsp-actions>
         timeoutMs: 60000
 ```
 
-सातों टूल हमेशा पंजीकृत रहते हैं। **खाली `servers` तालिका और बिना माउंटेड `ctx.lsp` seam के कॉल ज़ोर से विफल होते हैं** (`LSP_ACTION_UNAVAILABLE` बताता है कि क्या कॉन्फ़िगर करना है) — प्लगइन वे server कभी शुरू नहीं करता जो आपने कॉन्फ़िगर नहीं किए। इस प्लगइन के **बाद** माउंट हुआ `ctx.lsp` seam अगली कॉल पर पहचान लिया जाता है (seam का पता हर कॉल पर चलता है, इसलिए लोड क्रम मायने नहीं रखता)।
+आठों टूल हमेशा पंजीकृत रहते हैं। **खाली `servers` तालिका और बिना माउंटेड `ctx.lsp` seam के कॉल ज़ोर से विफल होते हैं** (`LSP_ACTION_UNAVAILABLE` बताता है कि क्या कॉन्फ़िगर करना है) — प्लगइन वे server कभी शुरू नहीं करता जो आपने कॉन्फ़िगर नहीं किए। इस प्लगइन के **बाद** माउंट हुआ `ctx.lsp` seam अगली कॉल पर पहचान लिया जाता है (seam का पता हर कॉल पर चलता है, इसलिए लोड क्रम मायने नहीं रखता)।
 
 ## यह निर्माण से ही सुरक्षित क्यों है
 
-- **फ़ॉर्मेटिंग एक असली बदलाव है, `write`/`edit` जैसा ही माना जाता है।** हर बाइट `fs/write-intent` waterfall (निरीक्षण → संरक्षित लेखन → निरीक्षण) और प्रति-कॉल sandbox नीति से गुज़रता है।
+- **फ़ॉर्मेटिंग और रिनेम असली बदलाव हैं, `write`/`edit` जैसे ही माने जाते हैं।** हर बाइट `fs/write-intent` waterfall (निरीक्षण → संरक्षित लेखन → निरीक्षण) और प्रति-कॉल sandbox नीति से गुज़रता है। `lsp_rename` हर संपादित फ़ाइल को पहली लेखन से *पहले* प्री-फ़्लाइट करता है (workspace समाहितता, ओवरलैप जाँच, बाइट-सीमित पठन), ताकि ख़राब server उत्तर आधा-लागू रिनेम न छोड़ सके।
 - **बाक़ी सब डिज़ाइन से केवल-पठन है।** कोड एक्शन, कम्प्लीशन, सिंबल, सिग्नेचर और हिंट्स संदर्भ सामग्री के रूप में रिपोर्ट होते हैं; उन्हें लागू करना मॉडल का अपना write/edit निर्णय है। कमांड रूप रिपोर्ट होते हैं और **कभी निष्पादित नहीं होते**।
 - **केवल-पठन सत्र ज़ोर से, तेज़ी से और संरचित रूप से विफल होते हैं** — साझा `[sandbox: …]` मार्कर के साथ `LSP_ACTION_READ_ONLY`, किसी भी server दौर से *पहले* उठाया जाता है।
-- **एस्केलेशन आधिकारिक टूल्स से मेल खाता है।** प्रतिबंधित फ़ाइलसिस्टम के तहत `lsp_format` वही एक-बार `sandbox_permissions` / `justification` पुनर्प्रयास विज्ञापित करता है जो `write`/`edit` करते हैं, `ctx.approval` के ज़रिए हल होता है।
+- **एस्केलेशन आधिकारिक टूल्स से मेल खाता है।** प्रतिबंधित फ़ाइलसिस्टम के तहत `lsp_format` और `lsp_rename` वही एक-बार `sandbox_permissions` / `justification` पुनर्प्रयास विज्ञापित करते हैं जो `write`/`edit` करते हैं, `ctx.approval` के ज़रिए हल होता है।
 - **संघर्ष कभी कुछ नहीं मिटाते।** अगर फ़ाइल पढ़े जाने के बाद डिस्क पर बदल गई, तो संरक्षित लेखन `LSP_ACTION_CONFLICT` से विफल होता है और मॉडल को चुनने को कहा जाता है: दोबारा पढ़कर फिर चलाएँ, या diff हाथ से लागू करें।
 - **टाइमआउट प्लेटफ़ॉर्म के हैं।** हर टूल `timeoutMs` घोषित करता है; आधिकारिक `dsh-tool-call-timeout-policy` उसे लागू करती है, और हर await `exec.signal` का सम्मान करता है।
 - **कुछ भी कैश नहीं होता।** परिणाम केवल सत्र लॉग में रहते हैं; सत्रों के बीच कोई स्थायित्व नहीं है।
@@ -89,7 +90,7 @@ dsh plugin --profile <name> add <path-or-tarball-of-dsh-lsp-actions>
 
 ```
 lsp_diagnostics / lsp_format / lsp_completion / lsp_code_action /
-lsp_symbols / lsp_signature / lsp_inlay_hints
+lsp_symbols / lsp_signature / lsp_inlay_hints / lsp_rename
         │
         ▼
    ctx.lsp seam (विस्तारित: diagnostics / formatDocument / completion)
@@ -146,9 +147,10 @@ interface LspServerEntry {
 | `LSP_ACTION_UNSUPPORTED` | server (या seam provider) ऑपरेशन का विज्ञापन नहीं करता। |
 | `LSP_ACTION_SERVER_FAILED` | server विफल हुआ (अपने stderr टेल सहित); स्टार्टअप विफलताएँ एक बार पुनः प्रयास करती हैं। |
 | `LSP_ACTION_MALFORMED_RESPONSE` | server ने संरचनात्मक रूप से अमान्य पेलोड भेजा। |
-| `LSP_ACTION_CONFLICT` | फ़ाइल पढ़े जाने के बाद बदल गई, या server के edits ओवरलैप / सीमा से बाहर हैं। |
-| `LSP_ACTION_READ_ONLY` | सत्र का sandbox मोड फ़ॉर्मेटिंग लेखन को मना करता है। |
+| `LSP_ACTION_CONFLICT` | फ़ाइल पढ़े जाने के बाद बदल गई, या server के edits ओवरलैप / सीमा से बाहर / workspace से बाहर हैं। |
+| `LSP_ACTION_READ_ONLY` | सत्र का sandbox मोड फ़ॉर्मेटिंग/रिनेम लेखन को मना करता है। |
 | `LSP_ACTION_WORKSPACE_REQUIRED` | कॉल करने वाले सत्र के पास server को जड़ देने के लिए workspace cwd नहीं है। |
+| `LSP_ACTION_NO_SYMBOL` | server को कर्सर स्थान पर नाम बदलने योग्य कोई सिंबल नहीं मिला। |
 
 ### होस्ट संस्करण समर्थन
 
@@ -158,13 +160,14 @@ interface LspServerEntry {
 
 - **क्षणिक दस्तावेज़।** हर एक्शन फ़ाइल खोलता है, एक अनुरोध चलाता है और फिर बंद कर देता है (आधिकारिक stdio host की तरह)। बिना-दस्तावेज़ अनुरोधों के लिए निवासी खुली फ़ाइल माँगने वाले प्रोजेक्ट-आधारित server (tsls बिना खुली फ़ाइल के `workspace/symbol` मना करता है) को `lsp_symbols` में `file_path` देकर सेवा दी जाती है — प्लगइन उस अनुरोध के दौरान रूटिंग फ़ाइल खुली रखता है। tsls इस जीवनचक्र में `textDocument/signatureHelp` का उत्तर `null` से भी देता है; अन्य server (gopls, pyright, rust-analyzer) इसे सामान्य रूप से परोसते हैं।
 - **रेंज फ़ॉर्मेटिंग के लिए server का range provider चाहिए।** केवल पूर्ण-दस्तावेज़ फ़ॉर्मेटिंग विज्ञापित करने वाले server रेंज अनुरोधों को `LSP_ACTION_UNSUPPORTED` से विफल करते हैं।
+- **रिनेम केवल टेक्स्ट edits लागू करता है।** server के रिनेम उत्तर में रिसोर्स ऑपरेशन (फ़ाइल बनाना/मिटाना/नाम बदलना) `LSP_ACTION_UNSUPPORTED` से अस्वीकार होते हैं, और workspace से बाहर के edits कुछ भी लिखे जाने से पहले `LSP_ACTION_CONFLICT` से विफल होते हैं। `utf-8`/`utf-32` server पर क्रॉस-फ़ाइल रिनेम स्थितियाँ हर संपादित फ़ाइल को पढ़कर डिकोड होती हैं; अपठनीय संपादित फ़ाइल स्थितियों को ग़लत डिकोड करने के बजाय कॉल को संघर्ष के रूप में विफल करती है।
 
 ## विकास
 
 ```sh
 pnpm install
 pnpm run lint        # src/ और tests/ पर oxlint
-pnpm test            # 200+ टेस्ट: यूनिट + fixture-server एकीकरण + असली tsls e2e
+pnpm test            # 240+ टेस्ट: यूनिट + fixture-server एकीकरण + असली tsls e2e
 pnpm run test:coverage   # द्वार: पंक्तियाँ/कथन/फ़ंक्शन ≥ 90%, शाखाएँ ≥ 85%
 pnpm build           # lib/ उत्पन्न करता है
 ```

@@ -30,8 +30,9 @@
 | `lsp_symbols <query?> <file_path?>` | 按名字全局搜索符号，或列出单个文件的符号大纲 | ❌ 只读 |
 | `lsp_signature <file> <line> <character>` | 调用点处的签名提示（参数与文档） | ❌ 只读 |
 | `lsp_inlay_hints <file> [range?]` | 服务器的类型标注与参数名提示 | ❌ 只读 |
+| `lsp_rename <file> <line> <character> <new_name>` | 服务器验证过的符号重命名，跨工作区应用并返回逐文件 diff | ✅ 走 `fs/write-intent` + 沙箱策略 |
 
-> ✨ 测试套件包含一次真实的 `typescript-language-server` 运行：诊断、格式化、补全与符号搜索都是对着活服务器端到端验证的，而非只有 mock。套件自包含（tsls 是 devDependency），并在 CI 中以 Node 22/24 × Linux/Windows/macOS 矩阵运行。
+> ✨ 测试套件包含一次真实的 `typescript-language-server` 运行：诊断、格式化、补全、符号搜索与重命名都是对着活服务器端到端验证的，而非只有 mock。套件自包含（tsls 是 devDependency），并在 CI 中以 Node 22/24 × Linux/Windows/macOS 矩阵运行。
 
 ## 快速开始
 
@@ -70,14 +71,14 @@ dsh plugin --profile <name> add <path-or-tarball-of-dsh-lsp-actions>
         timeoutMs: 60000
 ```
 
-七个工具**始终注册**。当 `servers` 表为空且没有挂载 `ctx.lsp` seam 时，调用会**响亮失败**（`LSP_ACTION_UNAVAILABLE`，错误信息指明该配置什么）—— 插件绝不会启动你没有配置的服务器。**在插件之后**挂载的 `ctx.lsp` seam 会在下一次调用时被识别（seam 探测按调用惰性解析，加载顺序无关）。
+八个工具**始终注册**。当 `servers` 表为空且没有挂载 `ctx.lsp` seam 时，调用会**响亮失败**（`LSP_ACTION_UNAVAILABLE`，错误信息指明该配置什么）—— 插件绝不会启动你没有配置的服务器。**在插件之后**挂载的 `ctx.lsp` seam 会在下一次调用时被识别（seam 探测按调用惰性解析，加载顺序无关）。
 
 ## 为什么按构造就安全
 
-- **格式化是真实写入，按 `write`/`edit` 同等对待。** 每个字节都经过 `fs/write-intent` waterfall（观测 → 守卫写 → 观测）与每次调用的沙箱策略。
+- **格式化与重命名是真实写入，按 `write`/`edit` 同等对待。** 每个字节都经过 `fs/write-intent` waterfall（观测 → 守卫写 → 观测）与每次调用的沙箱策略。`lsp_rename` 会在第一笔写入**之前**对每个待改文件做预检（工作区包含性、重叠检查、字节上限读取），坏服务器响应不可能留下写了一半的重命名。
 - **其余一切按设计只读。** 代码动作、补全、符号、签名与提示都作为参考材料返回；应用它们由模型自行决定用 write/edit 完成。命令形态只报告、**绝不执行**。
 - **只读会话响亮、快速、结构化地失败** —— 在任何服务器往返之前抛出带共享 `[sandbox: …]` 标记的 `LSP_ACTION_READ_ONLY`。
-- **升级路径与官方工具一致。** 在受限文件系统下，`lsp_format` 广告与 `write`/`edit` 相同的 `sandbox_permissions` / `justification` 一次性重试，经 `ctx.approval` 裁决。
+- **升级路径与官方工具一致。** 在受限文件系统下，`lsp_format` 与 `lsp_rename` 广告与 `write`/`edit` 相同的 `sandbox_permissions` / `justification` 一次性重试，经 `ctx.approval` 裁决。
 - **冲突绝不覆盖。** 若文件在读后被改动，守卫写以 `LSP_ACTION_CONFLICT` 失败，并让模型二选一：重读后重跑，或手工应用 diff。
 - **超时是平台职责。** 每个工具声明 `timeoutMs`，由官方 `dsh-tool-call-timeout-policy` 执行，所有 await 尊重 `exec.signal`。
 - **不缓存任何东西。** 结果只存在于会话日志，无跨会话持久化。
@@ -89,7 +90,7 @@ dsh plugin --profile <name> add <path-or-tarball-of-dsh-lsp-actions>
 
 ```
 lsp_diagnostics / lsp_format / lsp_completion / lsp_code_action /
-lsp_symbols / lsp_signature / lsp_inlay_hints
+lsp_symbols / lsp_signature / lsp_inlay_hints / lsp_rename
         │
         ▼
    ctx.lsp seam（扩展后：diagnostics / formatDocument / completion）
@@ -146,9 +147,10 @@ interface LspServerEntry {
 | `LSP_ACTION_UNSUPPORTED` | 服务器（或 seam provider）未广告该操作。 |
 | `LSP_ACTION_SERVER_FAILED` | 服务器失败（附 stderr 尾部）；启动失败重试一次。 |
 | `LSP_ACTION_MALFORMED_RESPONSE` | 服务器返回了结构非法的负载。 |
-| `LSP_ACTION_CONFLICT` | 文件读后已变，或服务器返回的编辑重叠/越界。 |
-| `LSP_ACTION_READ_ONLY` | 会话沙箱模式禁止格式化写入。 |
+| `LSP_ACTION_CONFLICT` | 文件读后已变，或服务器返回的编辑重叠/越界/越出工作区。 |
+| `LSP_ACTION_READ_ONLY` | 会话沙箱模式禁止格式化/重命名写入。 |
 | `LSP_ACTION_WORKSPACE_REQUIRED` | 调用会话没有可扎根的 workspace cwd。 |
+| `LSP_ACTION_NO_SYMBOL` | 服务器在光标位置找不到可重命名的符号。 |
 
 ### 宿主版本支持
 
@@ -158,16 +160,21 @@ interface LspServerEntry {
 
 - **瞬态文档。** 每次动作都是打开文件 → 发一个请求 → 关闭文件（与官方 stdio host 一致）。依赖常驻打开文件的基于项目的服务器（tsls 在无打开文档时拒绝 `workspace/symbol`）可通过给 `lsp_symbols` 传 `file_path` 解决 —— 插件会在该请求期间保持路由文件打开。tsls 在该生命周期下对 `textDocument/signatureHelp` 返回 `null`；其他服务器（gopls、pyright、rust-analyzer）正常应答。
 - **范围格式化要求服务器广告 range provider。** 只广告全文格式化的服务器对范围请求以 `LSP_ACTION_UNSUPPORTED` 失败。
+- **重命名只应用文本编辑。** 服务器重命名结果中的资源操作（新建/删除/重命名文件）以 `LSP_ACTION_UNSUPPORTED` 拒绝；越出工作区的编辑在任何写入发生前以 `LSP_ACTION_CONFLICT` 失败。在 `utf-8`/`utf-32` 服务器上，跨文件重命名位置通过逐个读取被编辑文件来解码；被编辑文件不可读时以冲突失败，绝不错误解码位置。
 
 ## 开发
 
 ```sh
 pnpm install
 pnpm run lint        # oxlint 检查 src/ 与 tests/
-pnpm test            # 200+ 测试：单元 + fixture 服务器集成 + 真实 tsls e2e
+pnpm test            # 240+ 测试：单元 + fixture 服务器集成 + 真实 tsls e2e
 pnpm run test:coverage   # 门禁：行/语句/函数 ≥ 90%，分支 ≥ 85%
 pnpm build           # 产出 lib/
 ```
+
+### 发布
+
+CI 在每次推送与 PR 上运行 lint/构建/测试矩阵 + 覆盖率门禁。推送 `v*` tag 会触发发布工作流：先验证全套测试再发布到 npm —— 需要在仓库里一次性配置 `NPM_TOKEN` Actions secret（发布权限的 npm access token）。版本号在打 tag 前于 `package.json` / `CHANGELOG.md` 中手动提升。
 
 ## License
 
