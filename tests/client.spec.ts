@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { LspActionClient } from '../src/client.ts'
 import { canonicalizeWorkspace, readHostSource } from '../src/host.ts'
 import type { ResolvedServer, ResolvedServerEntry } from '../src/servers.ts'
-import { FakeFs } from './helpers/fake-ctx.ts'
+import { FakeFs, rmDirWithDrain } from './helpers/fake-ctx.ts'
 import { spawnForTest } from './helpers/spawn-adapter.ts'
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/lsp-fixture-server.mjs', import.meta.url))
@@ -24,7 +24,8 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true })
+  // The fixture servers are killed asynchronously; drain Windows handle release with retries.
+  await rmDirWithDrain(root)
 })
 
 /** A resolved server entry pointing at the fixture with the given flags and static configuration. */

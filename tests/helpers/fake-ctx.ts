@@ -206,5 +206,27 @@ export class FakeFs {
 
 /** Remove a fake context's temp directory. */
 export async function disposeFakeContext(fake: FakeContext): Promise<void> {
-  await rm(fake.fs.root, { recursive: true, force: true })
+  await rmDirWithDrain(fake.fs.root)
+}
+
+/**
+ * Remove a directory with a short EBUSY/EPERM retry: on Windows a terminated server tree
+ * (taskkill /T) releases its cwd and file handles asynchronously, so the first recursive rm right
+ * after teardown can hit EBUSY. Retrying briefly makes suite cleanup deterministic instead of
+ * flaky in CI.
+ */
+export async function rmDirWithDrain(target: string): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await rm(target, { recursive: true, force: true })
+      return
+    } catch (error) {
+      lastError = error
+      const code = typeof error === 'object' && error !== null ? (error as { code?: string }).code : undefined
+      if (code !== 'EBUSY' && code !== 'EPERM') throw error
+      await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)))
+    }
+  }
+  throw lastError
 }

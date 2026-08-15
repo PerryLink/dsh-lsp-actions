@@ -26,11 +26,16 @@ jobs:
       - run: pnpm test
       - name: Verify package contents
         run: npm pack --dry-run
-      # Publishes the bumped package.json version. Requires the NPM_TOKEN Actions secret
-      # (a publish-scoped npm access token); the step is skipped when it is absent, so a tag
-      # push without the secret still verifies the suite but does not fail the release.
+      # Publishes the bumped package.json version. Requires the NPM_TOKEN Actions secret (a
+      # publish-scoped npm access token). Secrets cannot be tested in a step `if`, so the guard
+      # lives in the shell: without the token the step logs a notice and still succeeds, and a
+      # tag push without the secret verifies the suite without failing the release.
       - name: Publish to npm
-        if: ${{ secrets.NPM_TOKEN != '' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        run: |
+          if [ -n "$NODE_AUTH_TOKEN" ]; then
+            npm publish --access public
+          else
+            echo "NPM_TOKEN secret is not set on this repository; skipping npm publish"
+          fi
