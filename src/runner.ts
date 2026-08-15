@@ -11,10 +11,10 @@ import { LspActionClient } from './client.ts'
 import type { ActionRequest } from './client.ts'
 import type { HostSource } from './host.ts'
 import { finalExtension } from './extension.ts'
-import { routeFile } from './servers.ts'
+import { firstLanguageId, routeFile } from './servers.ts'
 import type { ResolvedServer } from './servers.ts'
 import { trySeamAction } from './seam.ts'
-import type { SeamService } from './seam.ts'
+import type { SeamExtras, SeamService } from './seam.ts'
 import type {
   LspActionResult,
   LspCodeActionsResult,
@@ -24,6 +24,7 @@ import type {
   LspInlayHintsResult,
   LspPosition,
   LspRange,
+  LspRenameResult,
   LspSignaturesResult,
   LspSymbolsResult,
 } from './vocabulary.ts'
@@ -57,6 +58,7 @@ export interface ActionRunner {
   documentSymbols(request: RunnerRequest, signal?: AbortSignal): Promise<LspSymbolsResult>
   signatureHelp(request: RunnerRequest, signal?: AbortSignal): Promise<LspSignaturesResult>
   inlayHints(request: RunnerRequest, signal?: AbortSignal): Promise<LspInlayHintsResult>
+  rename(request: RunnerRequest, newName: string, signal?: AbortSignal): Promise<LspRenameResult>
 }
 
 /**
@@ -80,6 +82,7 @@ export function createActionRunner(options: {
     documentSymbols: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'documentSymbol', request, signal),
     signatureHelp: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'signatureHelp', request, signal),
     inlayHints: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'inlayHint', request, signal),
+    rename: (request, newName, signal) => renameOp({ ...options, seam: options.getSeam() }, request, newName, signal),
   }
 }
 
@@ -173,6 +176,7 @@ async function runOp(
       request.position,
       request.range,
       signal,
+      extrasFor(operation, request),
     )
     if (attempt.ok) return attempt.result
     if (attempt.reason === 'unsupported') {
@@ -236,11 +240,70 @@ function firstServerRoute(servers: readonly ResolvedServer[], operation: string)
   return { server: first, languageId: firstLanguageId(first) }
 }
 
-/** The first extension mapping's language id, used when no file route applies. */
-function firstLanguageId(server: ResolvedServer): string {
-  const languageId = Object.values(server.entry.extensionToLanguage)[0]
-  if (languageId === undefined) throw new Error(`lsp-actions: server "${server.serverId}" maps no extensions`)
-  return languageId
+/** The operation-specific extras one seam query carries (`query` for symbol search, `only` filters). */
+function extrasFor(operation: string, request: RunnerRequest): SeamExtras {
+  switch (operation) {
+    case 'workspaceSymbol': return request.query === undefined ? {} : { query: request.query }
+    case 'codeAction': return request.onlyKinds === undefined ? {} : { onlyKinds: request.onlyKinds }
+    default: return {}
+  }
+}
+
+/**
+ * Serve the rename action: seam first (only a seam that answers with the `rename` result kind
+ * serves it — any current seam vintage falls back), then the plugin's own client.
+ */
+async function renameOp(
+  options: {
+    readonly seam: SeamService | undefined
+    readonly client: LspActionClient
+    readonly servers: readonly ResolvedServer[]
+  },
+  request: RunnerRequest,
+  newName: string,
+  signal?: AbortSignal,
+): Promise<LspRenameResult> {
+  if (options.seam !== undefined) {
+    const attempt = await trySeamAction(
+      options.seam,
+      'rename',
+      request.filePath,
+      request.workspaceRoot,
+      request.position,
+      request.range,
+      signal,
+      { newName },
+    )
+    if (attempt.ok) {
+      if (attempt.result.kind === 'rename') return attempt.result
+      // A seam answered with a different result kind: it cannot serve rename — fall through.
+    } else {
+      if (attempt.reason === 'unsupported') {
+        throw new LspActionError(
+          'the mounted ctx.lsp provider does not support rename; configure a server that advertises it',
+          'LSP_ACTION_UNSUPPORTED',
+        )
+      }
+      if (attempt.reason === 'error') throw attempt.error
+      // absent / legacy / unavailable: the seam cannot serve rename — fall through to the
+      // plugin's own client, which fails loud itself when no entry handles the file.
+    }
+  }
+  const route = routeFile(options.servers, request.filePath)
+  if (route === undefined) {
+    throw new LspActionError(noRouteMessage(request.filePath), 'LSP_ACTION_UNAVAILABLE')
+  }
+  if (request.source === undefined) {
+    throw new LspActionError('the rename action requires a source document', 'LSP_ACTION_WORKSPACE_REQUIRED')
+  }
+  const actionRequest: ActionRequest = {
+    filePath: request.filePath,
+    workspaceRoot: request.workspaceRoot,
+    source: request.source,
+    languageId: route.languageId,
+    ...request.position === undefined ? {} : { position: request.position },
+  }
+  return await options.client.rename(route.server, actionRequest, newName, signal)
 }
 
 /** The fail-loud message when neither the seam nor the servers table handles the file. */

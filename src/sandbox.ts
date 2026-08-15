@@ -1,8 +1,9 @@
 /**
- * The sandbox-escalation API for `lsp_format`: per-call policy resolution, the advertised
- * escalation fields, and denial-marker mapping — delegating the vocabulary and the fail-closed
- * approval sequence to `@deepseek-ai/dsh-sandbox`, exactly as `dsh-tool-fs` does for `write`/`edit`,
- * so formatting escalates identically to the official mutation tools.
+ * The sandbox-escalation API for the mutation tools (`lsp_format` / `lsp_rename`): per-call policy
+ * resolution, the advertised escalation fields, and denial-marker mapping — delegating the
+ * vocabulary and the fail-closed approval sequence to `@deepseek-ai/dsh-sandbox`, exactly as
+ * `dsh-tool-fs` does for `write`/`edit`, so formatting and rename escalate identically to the
+ * official mutation tools.
  * @module dsh-lsp-actions/sandbox
  */
 
@@ -13,7 +14,7 @@ import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { FsError } from '@deepseek-ai/dsh-fs'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 
-/** The two escalation arguments `lsp_format` may carry (advertised only under a confining backend). */
+/** The two escalation arguments a mutation tool may carry (advertised only under a confining backend). */
 export interface FormatEscalationArgs {
   sandbox_permissions?: string
   justification?: string
@@ -26,7 +27,7 @@ export interface EscalationSchemaFields {
 }
 
 /**
- * The formatting escalation API: advertisement gating, per-call policy resolution, the one-approved
+ * The mutation-escalation API: advertisement gating, per-call policy resolution, the one-approved
  * wider retry, and denial-marker mapping. A pure product of `ctx` at plugin apply time.
  */
 export class FormatSandboxController {
@@ -45,23 +46,24 @@ export class FormatSandboxController {
   }
 
   /**
-   * The escalation schema fields for `lsp_format`'s `parameters`. Call it only under a confining
+   * The escalation schema fields for a mutation tool's `parameters`. Call it only under a confining
    * backend (guard on {@link escalationModes}); the enum pins the closed target vocabulary, the
    * strict-wider check happens per call at execution.
+   * @param actionLabel - the action named in the advertised descriptions (`formatting`, `rename`).
    * @returns the two escalation parameter specs.
    */
-  schemaFields(): EscalationSchemaFields {
+  schemaFields(actionLabel: string): EscalationSchemaFields {
     return {
       sandbox_permissions: {
         type: 'string',
         enum: [...this.escalationModes],
-        description: 'The wider sandbox mode this formatting needs. Only valid as a one-shot retry '
+        description: 'The wider sandbox mode this operation needs. Only valid as a one-shot retry '
           + 'of an operation the sandbox just denied; requires justification and user approval.',
       },
       justification: {
         type: 'string',
         description: 'Required with sandbox_permissions: one sentence for the user explaining '
-          + 'why this exact formatting needs the wider access.',
+          + `why this exact ${actionLabel} needs the wider access.`,
       },
     }
   }

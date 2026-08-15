@@ -139,6 +139,20 @@ describe.skipIf(!tslsAvailable)('typescript-language-server end-to-end', () => {
     expect(value.items.some(item => item.name === 'f')).toBe(true)
   }, 120_000)
 
+  it('renames a symbol through the real server and writes the result', async () => {
+    const tool = fake.tools.find(candidate => candidate.name === 'lsp_rename')
+    if (tool === undefined) throw new Error('lsp_rename was not registered')
+    // Line 5 `const n: number = "text"`: rename `n` (character 7) to `count`.
+    const value = await tool.execute({ file_path: 'a.ts', line: 5, character: 7, new_name: 'count' }, fakeExec(workspace)) as {
+      kind: string
+      appliedEdits: number
+    }
+    expect(value.kind).toBe('renamed')
+    expect(value.appliedEdits).toBeGreaterThan(0)
+    const renamed = await readFile(join(workspace, 'a.ts'), 'utf8')
+    expect(renamed).toContain('const count: number')
+  }, 120_000)
+
   // NOTE: no tsls signature-help case here — typescript-language-server answers
   // textDocument/signatureHelp with null under this client's transient-open lifecycle
   // (verified by direct probe); lsp_signature is covered by the fixture integration tests.

@@ -6,6 +6,7 @@
  * Usage: node lsp-fixture-server.mjs [--push-diag] [--multi-push] [--hang] [--malformed-format]
  *   [--fail-start] [--no-completion] [--sync-none] [--ask-config] [--utf8]
  *   [--fail-first-time <marker>] [--count-spawns <marker>]
+ *   [--rename-multi-file] [--rename-file-ops] [--no-rename-symbol] [--no-prepare-rename]
  */
 
 import process from 'node:process'
@@ -22,6 +23,10 @@ const askConfig = args.has('--ask-config')
 const utf8 = args.has('--utf8')
 const rejectFormat = args.has('--reject-format')
 const serverRequests = args.has('--server-requests')
+const renameMultiFile = args.has('--rename-multi-file')
+const renameFileOps = args.has('--rename-file-ops')
+const noRenameSymbol = args.has('--no-rename-symbol')
+const noPrepareRename = args.has('--no-prepare-rename')
 
 const flagValue = (flag) => {
   const index = process.argv.indexOf(flag)
@@ -46,6 +51,7 @@ const countSpawns = flagValue('--count-spawns')
 if (countSpawns !== null) appendFileSync(countSpawns, 'spawn\n')
 
 const opened = new Map()
+let rootUri = null
 let configRequestId = 0
 let configAnswers = []
 let pendingDiagnosticId = null
@@ -100,6 +106,57 @@ function fixtureFormatting() {
   return edits
 }
 
+/** The utf-16 range of the word the cursor sits in (or null when there is none). */
+function wordRangeAt(text, position) {
+  const lines = text.split('\n')
+  const line = lines[position.line] ?? ''
+  let start = position.character
+  let end = position.character
+  while (start > 0 && /\w/.test(line[start - 1])) start -= 1
+  while (end < line.length && /\w/.test(line[end])) end += 1
+  if (start === end) return null
+  return { start: { line: position.line, character: start }, end: { line: position.line, character: end } }
+}
+
+/** Convert a utf-16 position to utf-8 byte offsets for one document. */
+function toUtf8(text, position) {
+  const lines = text.split('\n')
+  let offset = 0
+  for (let index = 0; index < position.line; index++) offset += Buffer.byteLength(lines[index]) + 1
+  offset += Buffer.byteLength(lines[position.line].slice(0, position.character))
+  return { line: position.line, character: offset }
+}
+
+/** The word-rename edits for the origin document, encoded per the negotiated encoding. */
+function fixtureRename(uri, position, newName) {
+  const text = opened.get(uri)
+  if (text === undefined) return null
+  const range = wordRangeAt(text, position)
+  if (range === null) return null
+  const edits = []
+  if (utf8) {
+    edits.push({
+      range: { start: toUtf8(text, range.start), end: toUtf8(text, range.end) },
+      newText: newName,
+    })
+  } else {
+    edits.push({ range, newText: newName })
+  }
+  if (renameMultiFile) {
+    // 'éé other' in another document: utf-8 offsets (5..10) differ from utf-16 (3..8), so a
+    // client that decodes per document must read that document to land the same utf-16 range.
+    edits.push({
+      range: utf8
+        ? { start: { line: 0, character: 5 }, end: { line: 0, character: 10 } }
+        : { start: { line: 0, character: 3 }, end: { line: 0, character: 8 } },
+      newText: newName,
+    })
+  }
+  const changes = { [uri]: [edits[0]] }
+  if (renameMultiFile) changes[`${rootUri}/other.ts`] = [edits[1]]
+  return { changes }
+}
+
 function send(message) {
   const body = Buffer.from(JSON.stringify(message), 'utf8')
   process.stdout.write(`Content-Length: ${body.byteLength}\r\n\r\n`)
@@ -117,6 +174,7 @@ function respondError(id, message) {
 function handle(id, method, params) {
   switch (method) {
     case 'initialize': {
+      rootUri = params.rootUri
       respond(id, {
         capabilities: {
           positionEncoding: utf8 ? 'utf-8' : 'utf-16',
@@ -129,6 +187,7 @@ function handle(id, method, params) {
           documentSymbolProvider: true,
           signatureHelpProvider: { triggerCharacters: ['('] },
           inlayHintProvider: true,
+          renameProvider: true,
           ...pushDiag ? {} : { diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } },
         },
       })
@@ -272,6 +331,22 @@ function handle(id, method, params) {
         { position: { line: 1, character: 0 }, label: [{ value: ': ' }, { value: 'number' }], kind: 1, paddingLeft: true },
       ])
       return
+    case 'textDocument/prepareRename':
+      if (noPrepareRename) {
+        respondError(id, 'prepareRename not supported by the fixture')
+        return
+      }
+      respond(id, noRenameSymbol ? null : { start: params.position, end: params.position })
+      return
+    case 'textDocument/rename': {
+      if (renameFileOps) {
+        respond(id, { documentChanges: [{ kind: 'rename', oldUri: params.textDocument.uri, newUri: `${params.textDocument.uri}.new` }] })
+        return
+      }
+      const result = fixtureRename(params.textDocument.uri, params.position, params.newName)
+      respond(id, result ?? null)
+      return
+    }
     case 'shutdown':
       respond(id, null)
       return

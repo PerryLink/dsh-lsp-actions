@@ -46,4 +46,38 @@ describe('trySeamAction classification', () => {
     const seam = { query: async () => { throw codedError('x', 'LSP_UNAVAILABLE') } } as unknown as SeamService
     await expect(trySeamAction(seam, 'diagnostics', 'a.ts', '/ws', undefined, undefined, controller.signal)).rejects.toThrow('stopped')
   })
+
+  it('forwards operation-specific extras (query, onlyKinds, newName) to the seam query', async () => {
+    const seen: unknown[] = []
+    const seam = {
+      query: async (queryRequest: unknown) => {
+        seen.push(queryRequest)
+        return { kind: 'symbols', items: [] }
+      },
+    } as unknown as SeamService
+    await trySeamAction(seam, 'workspaceSymbol', 'a.ts', '/ws', undefined, undefined, undefined, { query: 'findMe' })
+    expect(seen[0]).toEqual({
+      operation: 'workspaceSymbol', filePath: 'a.ts', workspaceRoot: '/ws', query: 'findMe',
+    })
+    await trySeamAction(seam, 'codeAction', 'a.ts', '/ws', undefined, undefined, undefined, { onlyKinds: ['quickfix'] })
+    expect(seen[1]).toEqual({
+      operation: 'codeAction', filePath: 'a.ts', workspaceRoot: '/ws', onlyKinds: ['quickfix'],
+    })
+    await trySeamAction(seam, 'rename', 'a.ts', '/ws', { line: 0, character: 0 }, undefined, undefined, { newName: 'next' })
+    expect(seen[2]).toEqual({
+      operation: 'rename', filePath: 'a.ts', workspaceRoot: '/ws', position: { line: 0, character: 0 }, newName: 'next',
+    })
+  })
+
+  it('omits absent extras from the seam query request', async () => {
+    const seen: unknown[] = []
+    const seam = {
+      query: async (queryRequest: unknown) => {
+        seen.push(queryRequest)
+        return { kind: 'diagnostics', diagnostics: [] }
+      },
+    } as unknown as SeamService
+    await trySeamAction(seam, 'diagnostics', 'a.ts', '/ws', undefined, undefined)
+    expect(seen[0]).toEqual({ operation: 'diagnostics', filePath: 'a.ts', workspaceRoot: '/ws' })
+  })
 })

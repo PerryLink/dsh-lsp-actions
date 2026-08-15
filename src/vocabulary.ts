@@ -9,8 +9,10 @@
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 
 /**
- * The LSP actions this plugin exposes: the three core actions plus the extended read-only surface
- * (code actions, symbols, signatures, inlay hints). Navigation stays with the official `lsp` tool.
+ * The LSP actions this plugin exposes: the three core actions plus the extended surface (code
+ * actions, symbols, signatures, inlay hints) and the writing `rename` action. Navigation stays
+ * with the official `lsp` tool. `rename` is a plugin-local extension beyond the proposed upstream
+ * seam union; a seam that cannot serve it falls back to the built-in client.
  */
 export type LspActionOperation =
   | 'diagnostics'
@@ -21,6 +23,7 @@ export type LspActionOperation =
   | 'documentSymbol'
   | 'signatureHelp'
   | 'inlayHint'
+  | 'rename'
 
 /** A zero-based UTF-16 cursor coordinate, matching the LSP wire convention. */
 export interface LspPosition {
@@ -139,6 +142,8 @@ export type LspSignaturesResult = {
   readonly activeParameter?: number
 }
 export type LspInlayHintsResult = { readonly kind: 'inlayHints'; readonly items: readonly LspInlayHint[] }
+/** The rename result: server-verified text edits grouped by target document URI (utf-16 positions). */
+export type LspRenameResult = { readonly kind: 'rename'; readonly edits: Readonly<Record<string, readonly LspTextEdit[]>> }
 export type LspActionResult =
   | LspDiagnosticsResult
   | LspEditsResult
@@ -147,6 +152,7 @@ export type LspActionResult =
   | LspSymbolsResult
   | LspSignaturesResult
   | LspInlayHintsResult
+  | LspRenameResult
 
 /** Stable machine-routable codes for LSP action failures, carried on {@link LspActionError}. */
 export type LspActionErrorCode =
@@ -157,6 +163,7 @@ export type LspActionErrorCode =
   | 'LSP_ACTION_CONFLICT'
   | 'LSP_ACTION_READ_ONLY'
   | 'LSP_ACTION_WORKSPACE_REQUIRED'
+  | 'LSP_ACTION_NO_SYMBOL'
 
 /**
  * Structured LSP action failure. Extends {@link HarnessError} so the tool registry surfaces

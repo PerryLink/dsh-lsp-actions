@@ -42,6 +42,7 @@ function clientDouble() {
     diagnostics: async () => { calls.push('diagnostics'); return { kind: 'diagnostics' as const, diagnostics: [] } },
     formatDocument: async () => { calls.push('formatDocument'); return { kind: 'edits' as const, edits: [] } },
     completion: async () => { calls.push('completion'); return { kind: 'completion' as const, items: [] } },
+    rename: async () => { calls.push('rename'); return { kind: 'rename' as const, edits: {} } },
   } as unknown as LspActionClient
   return { client, calls }
 }
@@ -131,6 +132,71 @@ describe('createActionRunner routing', () => {
       expect.objectContaining({ code: 'LSP_ACTION_UNAVAILABLE' }),
     )
     await expect(runner.diagnostics(request)).rejects.toThrow(/no LSP server is configured for files with the "\.ts" extension/)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('serves rename through a seam that answers the rename result kind', async () => {
+    const { client, calls } = clientDouble()
+    const renameEdits = { 'file:///ws/a.ts': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, newText: 'next' }] }
+    const runner = createActionRunner({
+      getSeam: () => ({ query: async () => ({ kind: 'rename' as const, edits: renameEdits }) }),
+      client,
+      servers: [],
+    })
+    const result = await runner.rename({ ...request, position: { line: 0, character: 1 } }, 'next')
+    expect(result).toEqual({ kind: 'rename', edits: renameEdits })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('falls back to the own client when the seam answers a different result kind for rename', async () => {
+    const { client, calls } = clientDouble()
+    const runner = createActionRunner({
+      getSeam: () => ({ query: async () => ({ kind: 'edits' as const, edits: [] }) }),
+      client,
+      servers: [server('ts')],
+    })
+    const result = await runner.rename({ ...request, position: { line: 0, character: 1 } }, 'next')
+    expect(result.kind).toBe('rename')
+    expect(calls).toEqual(['rename'])
+  })
+
+  it('fails rename as unavailable when no server handles the file', async () => {
+    const { client, calls } = clientDouble()
+    const runner = createActionRunner({ getSeam: () => undefined, client, servers: [] })
+    await expect(runner.rename({ ...request, position: { line: 0, character: 1 } }, 'next')).rejects.toThrow(
+      expect.objectContaining({ code: 'LSP_ACTION_UNAVAILABLE' }),
+    )
+    expect(calls).toHaveLength(0)
+  })
+
+  it('forwards the symbol query and code-action kind filters through the seam path', async () => {
+    const { client, calls } = clientDouble()
+    const seen: unknown[] = []
+    const runner = createActionRunner({
+      getSeam: () => ({
+        query: async (queryRequest: unknown) => {
+          seen.push(queryRequest)
+          return { kind: 'symbols' as const, items: [] }
+        },
+      }),
+      client,
+      servers: [],
+    })
+    await runner.workspaceSymbols({ ...request, query: 'findMe' })
+    expect(seen[0]).toEqual(expect.objectContaining({ operation: 'workspaceSymbol', query: 'findMe' }))
+    // The code-action path exercises the same forwarding for onlyKinds.
+    const codeActionRunner = createActionRunner({
+      getSeam: () => ({
+        query: async (queryRequest: unknown) => {
+          seen.push(queryRequest)
+          return { kind: 'codeActions' as const, items: [] }
+        },
+      }),
+      client,
+      servers: [],
+    })
+    await codeActionRunner.codeActions({ ...request, onlyKinds: ['quickfix'] })
+    expect(seen[1]).toEqual(expect.objectContaining({ operation: 'codeAction', onlyKinds: ['quickfix'] }))
     expect(calls).toHaveLength(0)
   })
 })

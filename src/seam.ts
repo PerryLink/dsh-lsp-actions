@@ -17,9 +17,22 @@ export interface SeamService {
       readonly position?: LspPosition
       readonly range?: LspRange
       readonly workspaceRoot: string
+      /** The symbol-name query, for workspace symbol search. */
+      readonly query?: string
+      /** CodeActionKind filters, for code actions. */
+      readonly onlyKinds?: readonly string[]
+      /** The new symbol name, for rename. */
+      readonly newName?: string
     },
     signal?: AbortSignal,
   ): Promise<LspActionResult>
+}
+
+/** Operation-specific extras a seam query may carry (`query`, `onlyKinds`, `newName`). */
+export interface SeamExtras {
+  readonly query?: string
+  readonly onlyKinds?: readonly string[]
+  readonly newName?: string
 }
 
 /** The classification of one seam attempt, deciding whether the runner falls back or fails. */
@@ -39,9 +52,10 @@ export type SeamAttempt =
  * @param operation - the action to run.
  * @param filePath - the source file.
  * @param workspaceRoot - the workspace root.
- * @param position - the cursor position, for completion.
- * @param range - the formatting range, for range formatting.
+ * @param position - the cursor position, for completion, signature help, and rename.
+ * @param range - the formatting/code-action/inlay-hint range.
  * @param signal - optional cancellation.
+ * @param extras - operation-specific extras (`query`, `onlyKinds`, `newName`) the operation carries.
  * @returns the classified attempt.
  */
 export async function trySeamAction(
@@ -51,7 +65,8 @@ export async function trySeamAction(
   workspaceRoot: string,
   position: LspPosition | undefined,
   range: LspRange | undefined,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  extras: SeamExtras = {},
 ): Promise<SeamAttempt> {
   if (seam === undefined) return { ok: false, reason: 'absent' }
   try {
@@ -61,6 +76,9 @@ export async function trySeamAction(
       workspaceRoot,
       ...position === undefined ? {} : { position },
       ...range === undefined ? {} : { range },
+      ...extras.query === undefined ? {} : { query: extras.query },
+      ...extras.onlyKinds === undefined ? {} : { onlyKinds: extras.onlyKinds },
+      ...extras.newName === undefined ? {} : { newName: extras.newName },
     }, signal)
     return { ok: true, result }
   } catch (error) {

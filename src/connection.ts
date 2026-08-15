@@ -43,6 +43,14 @@ const writeConnectionMessage = (stdin: Writable, message: unknown, done: (error?
   stdin.write(encodeMessage(message), done)
 }
 
+/** A JSON-RPC error response from the language server, carrying the wire error code. */
+export class LspRpcError extends Error {
+  constructor(message: string, readonly code: number) {
+    super(message)
+    this.name = 'LspRpcError'
+  }
+}
+
 /**
  * A live JSON-RPC endpoint bound to one child process. Requests reject immediately after the
  * process closes or the protocol stream fails, so no caller can hang on a dead server.
@@ -223,7 +231,8 @@ export class LspConnection {
     const error = frame.error
     if (error !== null && typeof error === 'object') {
       const record = error as Record<string, unknown>
-      pending.reject(new Error(typeof record.message === 'string' ? record.message : 'LSP error response'))
+      const message = typeof record.message === 'string' ? record.message : 'LSP error response'
+      pending.reject(new LspRpcError(message, typeof record.code === 'number' ? record.code : -32603))
       return
     }
     pending.resolve(frame.result)

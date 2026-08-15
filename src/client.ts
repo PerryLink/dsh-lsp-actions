@@ -11,11 +11,12 @@ import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { Context } from '@deepseek-ai/cordis'
 import { abortable } from './abort.ts'
-import { LspConnection } from './connection.ts'
+import { LspConnection, LspRpcError } from './connection.ts'
 import type { ConnectionSpawner } from './connection.ts'
-import { canonicalizeWorkspace } from './host.ts'
+import { canonicalizeWorkspace, normalizeFileUri, readHostSource, workspaceRelativePath } from './host.ts'
 import type { HostSource, HostWorkspace } from './host.ts'
 import {
+  decodeTextEdits,
   negotiatePositionEncoding,
   normalizeCodeActions,
   normalizeCompletionItems,
@@ -24,6 +25,7 @@ import {
   normalizeInlayHints,
   normalizeSignatures,
   normalizeSymbols,
+  normalizeWorkspaceEdit,
   PositionCodec,
   requestMethod,
   supportsAction,
@@ -31,9 +33,10 @@ import {
   supportsTransientOpen,
 } from './translate.ts'
 import type { PositionDecoder, WirePositionEncoding, WireServerCapabilities } from './translate.ts'
-import type { LspActionResult, LspCodeActionsResult, LspCompletionResult, LspDiagnostic, LspDiagnosticsResult, LspEditsResult, LspInlayHintsResult, LspPosition, LspRange, LspSignaturesResult, LspSymbolsResult } from './vocabulary.ts'
+import type { LspActionResult, LspCodeActionsResult, LspCompletionResult, LspDiagnostic, LspDiagnosticsResult, LspEditsResult, LspInlayHintsResult, LspPosition, LspRange, LspRenameResult, LspSignaturesResult, LspSymbolsResult, LspTextEdit } from './vocabulary.ts'
 import { LspActionError } from './vocabulary.ts'
 import type { ResolvedServer } from './servers.ts'
+import { DEFAULT_MAX_DOCUMENT_BYTES } from './servers.ts'
 
 /** One action call as the client receives it: everything the tool already knows. */
 export interface ActionRequest {
@@ -72,6 +75,13 @@ interface InstanceSpec {
   readonly idleTimeoutMs: number
 }
 
+/** The raw rename result the instance produces: grouped wire edits still in the server's encoding. */
+interface RawRenameResult {
+  readonly kind: 'rename'
+  readonly edits: Record<string, LspTextEdit[]>
+  readonly encoding: WirePositionEncoding
+}
+
 /**
  * Pooled minimal LSP action client. Instances are single-flight per canonical workspace and are
  * evicted as soon as they die; every await observes cancellation.
@@ -84,6 +94,8 @@ export class LspActionClient {
   constructor(
     private readonly subprocess: Context['subprocess'],
     private readonly fs: FileSystem,
+    /** Byte cap for documents the rename flow reads back to decode cross-file positions. */
+    private readonly maxDocumentBytes: number = DEFAULT_MAX_DOCUMENT_BYTES,
   ) {}
 
   /** Spawn one connection through the subprocess seam (the real provider at runtime). */
@@ -192,6 +204,26 @@ export class LspActionClient {
    */
   inlayHints(server: ResolvedServer, request: ActionRequest, signal?: AbortSignal): Promise<LspInlayHintsResult> {
     return this.run(server, request, signal, instance => instance.inlayHints(request, signal))
+  }
+
+  /**
+   * Run a symbol rename through the routed server; the client only RETURNS the grouped edits, it
+   * never writes files — the tool applies them through `ctx.fs` write-intent. Cross-document
+   * positions are decoded per document (reading the target text for non-utf-16 servers), so the
+   * returned edits are utf-16 for every document.
+   * @param server - the routed server entry.
+   * @param request - the action request (carries the cursor position).
+   * @param newName - the new symbol name.
+   * @param signal - optional cancellation.
+   * @returns the normalized, decoded rename result.
+   */
+  rename(server: ResolvedServer, request: ActionRequest, newName: string, signal?: AbortSignal): Promise<LspRenameResult> {
+    return this.run(server, request, signal, async (instance, querySignal) => {
+      const workspace = await canonicalizeWorkspace(this.fs, request.workspaceRoot, querySignal)
+      this.assertActive(querySignal)
+      const raw = await instance.rename(request, newName, querySignal)
+      return this.decodeRenameEdits(raw, request, workspace, querySignal)
+    })
   }
 
   /** Disposed flag through a method so an await cannot narrow it to a literal. */
@@ -372,6 +404,51 @@ export class LspActionClient {
       if (result.status === 'rejected') failures.push(result.reason)
     }
     if (failures.length > 0) throw new AggregateError(failures, 'lsp-actions instance teardown failed')
+  }
+
+  /**
+   * Decode one rename's grouped wire edits into utf-16, per document: the origin document uses
+   * the source text the server saw; any other document is read back for its codec (utf-16 servers
+   * need no read — their positions are already utf-16). An unreadable or out-of-workspace target
+   * on a non-utf-16 server is a structured conflict, never silently mis-decoded positions.
+   */
+  private async decodeRenameEdits(
+    raw: RawRenameResult,
+    request: ActionRequest,
+    workspace: HostWorkspace,
+    signal: AbortSignal | undefined,
+  ): Promise<LspRenameResult> {
+    const decoded: Record<string, LspTextEdit[]> = {}
+    const originUri = normalizeFileUri(request.source.fileUrl)
+    for (const [uri, edits] of Object.entries(raw.edits)) {
+      let codec: PositionCodec | undefined
+      if (raw.encoding === 'utf-16') {
+        codec = undefined
+      } else if (normalizeFileUri(uri) === originUri) {
+        codec = new PositionCodec(request.source.text)
+      } else {
+        const relative = workspaceRelativePath(workspace, uri)
+        if (relative === undefined) {
+          throw new LspActionError(
+            `the language server's rename edits a document outside the workspace (${uri}), whose ${raw.encoding} positions cannot be decoded`,
+            'LSP_ACTION_CONFLICT',
+          )
+        }
+        let target: string
+        try {
+          target = (await readHostSource(this.fs, relative, workspace, this.maxDocumentBytes, signal)).text
+        } catch (error) {
+          throw new LspActionError(
+            `the language server's rename edits a document that cannot be read (${uri}): ${messageOf(error)}`,
+            'LSP_ACTION_CONFLICT',
+            { cause: error },
+          )
+        }
+        codec = new PositionCodec(target)
+      }
+      decoded[uri] = decodeTextEdits(edits, codec, raw.encoding)
+    }
+    return { kind: 'rename', edits: decoded }
   }
 }
 
@@ -599,6 +676,42 @@ class LspActionInstance {
     })
   }
 
+  /**
+   * Run a rename through the server and return the grouped wire edits (positions still in the
+   * server's encoding; the client decodes them per document). `textDocument/prepareRename` runs
+   * first as advisory validation: a `null` answer is the structured no-symbol failure, while a
+   * server without the method (or that rejects it on a transient document) still serves rename.
+   */
+  rename(request: ActionRequest, newName: string, signal?: AbortSignal): Promise<RawRenameResult> {
+    return this.runSerialized(signal, async () => {
+      await this.readyGate(signal)
+      this.assertSupports('rename', request)
+      return await this.withDocument(request, signal, async (uri) => {
+        const position = this.encodePosition(request.source.text, request.position)
+        if (position === undefined) throw new Error('rename requires a cursor position')
+        try {
+          const prepared = await this.sendRequest('textDocument/prepareRename', {
+            textDocument: { uri },
+            position,
+          }, signal)
+          if (prepared === null || prepared === undefined) {
+            throw new LspActionError('no symbol to rename at this position', 'LSP_ACTION_NO_SYMBOL')
+          }
+        } catch (error) {
+          // Advisory only: an error RESPONSE (including method-not-found) does not stop the call;
+          // a transport failure does.
+          if (!(error instanceof LspRpcError)) throw error
+        }
+        const payload = await this.sendRequest('textDocument/rename', {
+          textDocument: { uri },
+          position,
+          newName,
+        }, signal)
+        return { kind: 'rename' as const, edits: normalizeWorkspaceEdit(payload), encoding: this.positionEncoding }
+      })
+    })
+  }
+
   /** Collect this document's diagnostics for a code-action context (pull or push-settle). */
   private async collectDiagnostics(uri: string, request: ActionRequest, signal: AbortSignal | undefined): Promise<LspDiagnostic[]> {
     const capabilities = this.requiredCapabilities()
@@ -651,7 +764,7 @@ class LspActionInstance {
 
   /** Reject an action the server did not advertise, or a sync mode this client cannot serve. */
   private assertSupports(
-    operation: 'diagnostics' | 'formatDocument' | 'completion' | 'codeAction' | 'documentSymbol' | 'signatureHelp' | 'inlayHint',
+    operation: 'diagnostics' | 'formatDocument' | 'completion' | 'codeAction' | 'documentSymbol' | 'signatureHelp' | 'inlayHint' | 'rename',
     request: ActionRequest,
   ): void {
     const capabilities = this.requiredCapabilities()
@@ -670,7 +783,7 @@ class LspActionInstance {
     body: (uri: string) => Promise<T>,
   ): Promise<T> {
     const uri = request.source.fileUrl
-    const key = normalizeUri(uri)
+    const key = normalizeFileUri(uri)
     let opened = false
     try {
       if (signal?.aborted) throw signal.reason
@@ -741,7 +854,7 @@ class LspActionInstance {
    * arrived).
    */
   private waitForPushedDiagnostics(uri: string, signal?: AbortSignal): Promise<LspDiagnostic[]> {
-    const key = normalizeUri(uri)
+    const key = normalizeFileUri(uri)
     return new Promise<LspDiagnostic[]>((resolve, reject) => {
       const settle = AbortSignal.timeout(this.spec.diagnosticsSettleMs)
       const fused = signal === undefined ? settle : AbortSignal.any([signal, settle])
@@ -781,7 +894,7 @@ class LspActionInstance {
     if (record === null || typeof record !== 'object' || typeof record.uri !== 'string') return
     let diagnostics: LspDiagnostic[]
     try {
-      const codec = this.openedDocs.get(normalizeUri(record.uri))?.codec
+      const codec = this.openedDocs.get(normalizeFileUri(record.uri))?.codec
       const decode = codec === undefined
         ? undefined
         : (position: LspPosition) => codec.decode(position, this.positionEncoding)
@@ -793,7 +906,7 @@ class LspActionInstance {
     // The latest batch replaces any earlier one for the same URI, per LSP push semantics. URIs are
     // compared normalized: servers re-spell file URIs (tsserver pushes lowercase percent-encoded
     // drive letters), so a raw string comparison would miss every batch.
-    const key = normalizeUri(record.uri)
+    const key = normalizeFileUri(record.uri)
     this.pushed.set(key, diagnostics)
     const waiter = this.pushWaiters.get(key)
     if (waiter !== undefined) waiter()
@@ -909,19 +1022,6 @@ function configurationSectionValue(configuration: unknown, item: unknown): unkno
   return configuration
 }
 
-/** Normalize a `file:` URI for document identity: decoded path, case-folded on Windows. */
-function normalizeUri(uri: string): string {
-  try {
-    const url = new URL(uri)
-    if (url.protocol !== 'file:') return uri
-    let path = decodeURIComponent(url.pathname)
-    if (process.platform === 'win32') path = path.toLowerCase()
-    return `file://${path}`
-  } catch {
-    return uri
-  }
-}
-
 /** Wrap a server-side failure with its stderr tail, keeping the structured failure code. */
 function serverFailed(error: unknown, stderrTail: string): LspActionError {
   const message = error instanceof Error ? error.message : String(error)
@@ -931,6 +1031,11 @@ function serverFailed(error: unknown, stderrTail: string): LspActionError {
     'LSP_ACTION_SERVER_FAILED',
     { cause: error },
   )
+}
+
+/** Coerce an unknown thrown value to a message string. */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /** Server→client request methods this client acknowledges with an empty result. */

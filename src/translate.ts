@@ -53,6 +53,7 @@ export function requestMethod(request: { operation: LspActionOperation; range?: 
     case 'documentSymbol': return 'textDocument/documentSymbol'
     case 'signatureHelp': return 'textDocument/signatureHelp'
     case 'inlayHint': return 'textDocument/inlayHint'
+    case 'rename': return 'textDocument/rename'
   }
 }
 
@@ -79,6 +80,7 @@ export function supportsAction(capabilities: WireServerCapabilities, operation: 
     case 'documentSymbol': return present(capabilities.documentSymbolProvider)
     case 'signatureHelp': return present(capabilities.signatureHelpProvider)
     case 'inlayHint': return present(capabilities.inlayHintProvider)
+    case 'rename': return present(capabilities.renameProvider)
   }
 }
 
@@ -460,6 +462,61 @@ function collectWorkspaceEdits(changes: unknown, decode: PositionDecoder | undef
       else existing.push(...normalized)
     }
   }
+}
+
+/**
+ * Normalize a `textDocument/rename` result (`WorkspaceEdit` or `null`) into the raw grouped edit
+ * record. Positions stay in the server's encoding — each document's edits are decoded per
+ * document by the caller, which owns that document's text. Resource operations (create/rename/
+ * delete) are refused: this client only applies text edits.
+ * @param payload - the raw WorkspaceEdit payload.
+ * @returns the grouped wire edits (empty for `null`).
+ * @throws LspActionError LSP_ACTION_MALFORMED_RESPONSE for structurally invalid entries, and
+ *   LSP_ACTION_UNSUPPORTED for resource operations.
+ */
+export function normalizeWorkspaceEdit(payload: unknown): Record<string, LspTextEdit[]> {
+  if (payload === null) return {}
+  if (payload === undefined || typeof payload !== 'object') throw malformedResponse('LSP rename result was not an object')
+  const record = payload as Record<string, unknown>
+  const edits: Record<string, LspTextEdit[]> = {}
+  if (record.changes !== undefined) collectWorkspaceEdits(record.changes, undefined, edits)
+  if (record.documentChanges !== undefined) {
+    if (!Array.isArray(record.documentChanges)) throw malformedResponse('LSP rename documentChanges must be an array')
+    for (const change of record.documentChanges) {
+      if (change === null || typeof change !== 'object') throw malformedResponse('LSP rename documentChanges contained a non-object entry')
+      const changeRecord = change as Record<string, unknown>
+      if (changeRecord.kind !== undefined) {
+        throw new LspActionError(
+          `the language server returned a ${String(changeRecord.kind)} file operation this client cannot apply — renames must be text edits`,
+          'LSP_ACTION_UNSUPPORTED',
+        )
+      }
+      const doc = changeRecord.textDocument as { uri?: unknown } | null
+      if (doc === null || typeof doc !== 'object' || typeof doc.uri !== 'string') {
+        throw malformedResponse('LSP rename documentChange had no textDocument uri')
+      }
+      if (!Array.isArray(changeRecord.edits)) throw malformedResponse('LSP rename documentChange had no edits array')
+      const normalized = changeRecord.edits.map(edit => normalizeEdit(edit, undefined))
+      if (normalized.length > 0) {
+        const existing = edits[doc.uri]
+        if (existing === undefined) edits[doc.uri] = normalized
+        else existing.push(...normalized)
+      }
+    }
+  }
+  return edits
+}
+
+/**
+ * Decode one document's wire edits from the server's position encoding to utf-16.
+ * @param edits - the edits in the server's encoding.
+ * @param codec - the document's position codec (undefined for utf-16 servers).
+ * @param encoding - the negotiated position encoding.
+ * @returns the decoded edits.
+ */
+export function decodeTextEdits(edits: readonly LspTextEdit[], codec: PositionCodec | undefined, encoding: WirePositionEncoding): LspTextEdit[] {
+  if (codec === undefined) return [...edits]
+  return edits.map(edit => ({ range: convertRange(edit.range, position => codec.decode(position, encoding)), newText: edit.newText }))
 }
 
 /**

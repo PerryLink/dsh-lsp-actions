@@ -1,10 +1,11 @@
 /**
- * LSP action surface for DeepSeek Harness: `lsp_diagnostics`, `lsp_format`, and `lsp_completion`
- * tools over language servers. Actions go through the extended official `ctx.lsp` seam when it is
- * mounted (the upstream PR proposal); otherwise the plugin's own minimal stdio client serves them
- * from the `servers` table, resolved and validated at load. With an empty servers table and no
- * seam, the tools are still registered and fail loudly with `LSP_ACTION_UNAVAILABLE` on use —
- * the seam is resolved per call, so a seam mounted after this plugin is served without a reload.
+ * LSP action surface for DeepSeek Harness: diagnostics, formatting, completion, code actions,
+ * symbols, signature help, inlay hints, and rename tools over language servers. Actions go through
+ * the extended official `ctx.lsp` seam when it is mounted (the upstream PR proposal); otherwise
+ * the plugin's own minimal stdio client serves them from the `servers` table, resolved and
+ * validated at load. With an empty servers table and no seam, the tools are still registered and
+ * fail loudly with `LSP_ACTION_UNAVAILABLE` on use — the seam is resolved per call, so a seam
+ * mounted after this plugin is served without a reload.
  *
  * Namespace plugin (named exports, no default export).
  * @module dsh-lsp-actions
@@ -18,7 +19,7 @@ import { FormatSandboxController } from './sandbox.ts'
 import type { SeamService } from './seam.ts'
 import { assertPositiveInteger, assertTimer, Config as ConfigSchema, resolveServers } from './servers.ts'
 import type { Config as ConfigType, ResolvedConfig, ResolvedServerEntry } from './servers.ts'
-import { registerCompletionTool, registerDiagnosticsTool, registerFormatTool } from './tools.ts'
+import { registerCompletionTool, registerDiagnosticsTool, registerFormatTool, registerRenameTool } from './tools.ts'
 
 export { LspServerEntry } from './servers.ts'
 export { LspActionClient } from './client.ts'
@@ -37,6 +38,7 @@ export type {
   LspInlayHintsResult,
   LspPosition,
   LspRange,
+  LspRenameResult,
   LspSignature,
   LspSignaturesResult,
   LspSymbol,
@@ -51,6 +53,7 @@ export {
   formatCompletionList,
   formatDiagnostics,
   formatInlayHints,
+  formatRenameResult,
   formatSignatures,
   formatSymbols,
   presentLspCodeActionCall,
@@ -63,6 +66,8 @@ export {
   presentLspFormatResult,
   presentLspInlayHintsCall,
   presentLspInlayHintsResult,
+  presentLspRenameCall,
+  presentLspRenameResult,
   presentLspSignatureCall,
   presentLspSignatureResult,
   presentLspSymbolsCall,
@@ -75,6 +80,7 @@ export {
   resolveServers,
 } from './servers.ts'
 export {
+  decodeTextEdits,
   negotiatePositionEncoding,
   normalizeCodeActions,
   normalizeCompletionItems,
@@ -83,6 +89,7 @@ export {
   normalizeInlayHints,
   normalizeSignatures,
   normalizeSymbols,
+  normalizeWorkspaceEdit,
   PositionCodec,
   requestMethod,
   supportsAction,
@@ -100,7 +107,7 @@ export const inject = ['tools', 'fs', 'subprocess']
 export const Config = ConfigSchema
 
 /**
- * Register the three LSP action tools. Resolves every configured server executable at load (fail
+ * Register the eight LSP action tools. Resolves every configured server executable at load (fail
  * loud on a missing command) before registering anything; tool, client, and server lifecycles are
  * effect-scoped, so disposal unregisters the tools and tears down every live server. The official
  * seam is resolved lazily per call (see the runner), so registration is independent of the seam's
@@ -125,7 +132,7 @@ export async function apply(ctx: Context, config: ConfigType): Promise<void> {
   // earlier tool, matching the official lsp-stdio load contract.
   const servers = await resolveServers(ctx, resolved.servers as Record<string, ResolvedServerEntry>)
   const sandbox = new FormatSandboxController(ctx)
-  const client = new LspActionClient(ctx.subprocess, ctx.fs)
+  const client = new LspActionClient(ctx.subprocess, ctx.fs, resolved.maxDocumentBytes)
   // `ctx.lsp` is an optional capability: typed required by the seam package, absent at runtime in
   // compositions without a provider. Consume it structurally and lazily, never by import or by an
   // apply-time snapshot — the seam may load after this plugin or be re-added mid-session.
@@ -140,6 +147,7 @@ export async function apply(ctx: Context, config: ConfigType): Promise<void> {
     registerSymbolsTool(ctx, runner, resolved)
     registerSignatureTool(ctx, runner, resolved)
     registerInlayHintsTool(ctx, runner, resolved)
+    registerRenameTool(ctx, runner, sandbox, resolved)
     return async () => {
       await client.disposeAll()
     }

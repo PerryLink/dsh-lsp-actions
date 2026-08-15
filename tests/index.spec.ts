@@ -62,8 +62,8 @@ const baseConfig = {
   timeoutMs: 60_000,
 }
 
-/** The full seven-tool surface, sorted. */
-const ALL_TOOLS = ['lsp_code_action', 'lsp_completion', 'lsp_diagnostics', 'lsp_format', 'lsp_inlay_hints', 'lsp_signature', 'lsp_symbols'].sort()
+/** The full eight-tool surface, sorted. */
+const ALL_TOOLS = ['lsp_code_action', 'lsp_completion', 'lsp_diagnostics', 'lsp_format', 'lsp_inlay_hints', 'lsp_rename', 'lsp_signature', 'lsp_symbols'].sort()
 
 describe('lsp-actions apply', () => {
   it('fills every config default through the schemastery schema', () => {
@@ -81,7 +81,7 @@ describe('lsp-actions apply', () => {
     })
   })
 
-  it('registers all seven tools even with empty servers and no seam; calls fail loudly as unavailable', async () => {
+  it('registers all eight tools even with empty servers and no seam; calls fail loudly as unavailable', async () => {
     await apply(fake.ctx as never, baseConfig)
     expect(fake.tools.map(tool => tool.name).sort()).toEqual(ALL_TOOLS)
     const tool = fake.tools.find(candidate => candidate.name === 'lsp_diagnostics')
@@ -91,7 +91,7 @@ describe('lsp-actions apply', () => {
     )
   })
 
-  it('registers all seven tools when the official seam is mounted, even with empty servers', async () => {
+  it('registers all eight tools when the official seam is mounted, even with empty servers', async () => {
     fake = await recreate(fake, { lsp: { query: async () => ({ kind: 'diagnostics', diagnostics: [] }) } })
     await apply(fake.ctx as never, baseConfig)
     expect(fake.tools.map(tool => tool.name).sort()).toEqual(ALL_TOOLS)

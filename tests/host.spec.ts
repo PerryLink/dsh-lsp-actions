@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { canonicalizeWorkspace, readHostSource, throwIfAborted } from '../src/host.ts'
+import { canonicalizeWorkspace, normalizeFileUri, readHostSource, throwIfAborted, workspaceRelativePath } from '../src/host.ts'
 import { FakeFs } from './helpers/fake-ctx.ts'
 
 let root: string
@@ -78,5 +78,37 @@ describe('throwIfAborted', () => {
     dead.abort(new Error('gone'))
     expect(() => throwIfAborted(dead.signal)).toThrow('gone')
     expect(() => throwIfAborted(undefined)).not.toThrow()
+  })
+})
+
+describe('workspaceRelativePath', () => {
+  it('maps a uri under the workspace root to its relative path', async () => {
+    const workspace = await canonicalizeWorkspace(fs, root)
+    expect(workspaceRelativePath(workspace, workspace.fileUrl)).toBe('.')
+    expect(workspaceRelativePath(workspace, `${workspace.fileUrl}/src/a%20b.ts`)).toBe('src/a b.ts')
+  })
+
+  it('maps a server re-spelled Windows uri (lowercase drive, encoded colon) without shifting the cut', async () => {
+    if (process.platform !== 'win32') return
+    const workspace = await canonicalizeWorkspace(fs, root)
+    const respelled = workspace.fileUrl.replace(
+      /^file:\/\/\/([A-Za-z]):/,
+      (_match, drive: string) => `file:///${drive.toLowerCase()}%3A`,
+    )
+    expect(respelled).not.toBe(workspace.fileUrl)
+    expect(workspaceRelativePath(workspace, `${respelled}/src/a.ts`)).toBe('src/a.ts')
+    expect(workspaceRelativePath(workspace, respelled)).toBe('.')
+  })
+
+  it('returns undefined for a uri outside the workspace', async () => {
+    const workspace = await canonicalizeWorkspace(fs, root)
+    expect(workspaceRelativePath(workspace, 'file:///elsewhere/a.ts')).toBeUndefined()
+  })
+})
+
+describe('normalizeFileUri', () => {
+  it('decodes percent escapes and passes non-file uris through', () => {
+    expect(normalizeFileUri('file:///ws/a%20b.ts')).toBe('file:///ws/a b.ts')
+    expect(normalizeFileUri('untitled:x')).toBe('untitled:x')
   })
 })

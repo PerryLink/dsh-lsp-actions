@@ -6,6 +6,7 @@ import {
   formatCompletionList,
   formatDiagnostics,
   formatInlayHints,
+  formatRenameResult,
   formatSignatures,
   formatSymbols,
   presentLspCodeActionCall,
@@ -18,6 +19,8 @@ import {
   presentLspFormatResult,
   presentLspInlayHintsCall,
   presentLspInlayHintsResult,
+  presentLspRenameCall,
+  presentLspRenameResult,
   presentLspSignatureCall,
   presentLspSignatureResult,
   presentLspSymbolsCall,
@@ -268,5 +271,31 @@ describe('extended-tool presenters', () => {
     const empty = presentLspInlayHintsResult(inlayArgs, { isError: false, meta: { items: [] } } as unknown as ToolResult)
     expect((empty as { title: string }).title).toContain('No inlay hints')
     expect(presentLspInlayHintsResult(inlayArgs, { isError: false } as unknown as ToolResult)).toBeUndefined()
+  })
+
+  it('presents the rename call and per-file diff result', () => {
+    const renameArgs = { file_path: 'a.ts', line: 5, character: 7, new_name: 'count' }
+    expect(presentLspRenameCall(renameArgs)).toEqual({
+      card: 'generic', kind: 'edit', title: 'Rename at a.ts:5:7 to count', locations: [{ path: 'a.ts', line: 5 }],
+    })
+    const result = {
+      isError: false,
+      meta: { diffs: [{ path: 'a.ts', oldText: 'a', newText: 'b' }] },
+    } as unknown as ToolResult
+    expect(presentLspRenameResult(renameArgs, result)).toEqual({
+      card: 'diff', title: 'Rename to count', diffs: [{ path: 'a.ts', oldText: 'a', newText: 'b' }],
+    })
+    expect(presentLspRenameResult(renameArgs, { isError: false } as unknown as ToolResult)).toBeUndefined()
+  })
+})
+
+describe('formatRenameResult', () => {
+  it('summarizes the applied edits and changed files', () => {
+    expect(formatRenameResult('a.ts', 5, 7, 'count', 3, 2))
+      .toBe('Renamed the symbol at a.ts:5:7 to "count": applied 3 edits across 2 files. The result cards show the diffs; re-read the files for the full result.')
+  })
+
+  it('uses singular forms for one edit and one file', () => {
+    expect(formatRenameResult('a.ts', 1, 1, 'x', 1, 1)).toContain('applied 1 edit across 1 file.')
   })
 })

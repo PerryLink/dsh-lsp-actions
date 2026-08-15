@@ -60,6 +60,10 @@ export interface InlayHintsCardMeta {
   readonly items: readonly { readonly line: number; readonly character: number; readonly label: string }[]
 }
 
+export interface RenameCardMeta {
+  readonly diffs: readonly { readonly path: string; readonly oldText: string | null; readonly newText: string }[]
+}
+
 /**
  * Format a diagnostics result as model-facing text: one `path:line:character  [Severity] message`
  * line per diagnostic, an omission marker past `maxDiagnostics`, then the complete result cap.
@@ -270,6 +274,28 @@ export function formatInlayHints(
     return `${item.position.line + 1}:${item.position.character + 1}  ${item.label}${kind}`
   })]
   return boundResult(lines.join('\n'), maxResultChars, 'inlay hints')
+}
+
+/**
+ * Format a rename outcome as one model-facing line; the UI diff cards carry the applied changes
+ * per file, so the text stays a summary and the model re-reads the files for the full result.
+ * @param filePath - the file the rename was requested in.
+ * @param line - the one-based cursor line.
+ * @param character - the one-based cursor character.
+ * @param newName - the new symbol name.
+ * @param appliedEdits - how many edits were applied across the workspace.
+ * @param filesChanged - how many files changed.
+ * @returns the summary text.
+ */
+export function formatRenameResult(
+  filePath: string,
+  line: number,
+  character: number,
+  newName: string,
+  appliedEdits: number,
+  filesChanged: number,
+): string {
+  return `Renamed the symbol at ${filePath}:${line}:${character} to "${newName}": applied ${appliedEdits} edit${appliedEdits === 1 ? '' : 's'} across ${filesChanged} file${filesChanged === 1 ? '' : 's'}. The result cards show the diffs; re-read the files for the full result.`
 }
 
 /** Collapse an edit's replacement text to its first line for the one-line edit listing. */
@@ -562,4 +588,40 @@ export function presentLspInlayHintsResult(_args: InlayHintsToolArgs, result: To
   }
   const lines = meta.items.map(item => `${item.line}:${item.character}  ${item.label}`)
   return { card: 'generic', title: `${meta.items.length} inlay hint${meta.items.length === 1 ? '' : 's'} for ${_args.file_path}`, content: [{ type: 'text', text: lines.join('\n') }] }
+}
+
+export interface RenameToolArgs {
+  readonly file_path: string
+  readonly line: number
+  readonly character: number
+  readonly new_name: string
+}
+
+/**
+ * Pending-state presenter for `lsp_rename`: the diffs exist only after the server answers, so the
+ * pending card is a generic edit card; the completed diff cards replace it.
+ * @param args - the raw tool arguments.
+ * @returns the generic call view.
+ */
+export function presentLspRenameCall(args: RenameToolArgs): GenericCallView {
+  return {
+    card: 'generic',
+    kind: 'edit',
+    title: `Rename at ${args.file_path}:${args.line}:${args.character} to ${args.new_name}`,
+    locations: [{ path: args.file_path, line: args.line }],
+  }
+}
+
+/**
+ * Completed-state presenter for `lsp_rename`: one applied diff card per changed file, rebuilt
+ * from the persisted projection so replay reproduces the cards without re-reading the files.
+ * @param args - the raw tool arguments (used for the title).
+ * @param result - the completed tool result.
+ * @returns the diff result view, or undefined to keep the fallback card.
+ */
+export function presentLspRenameResult(args: RenameToolArgs, result: ToolResult): DiffResultView | undefined {
+  if (result.isError) return undefined
+  const meta = result.meta as Partial<RenameCardMeta> | undefined
+  if (meta === undefined || !Array.isArray(meta.diffs)) return undefined
+  return { card: 'diff', title: `Rename to ${args.new_name}`, diffs: [...meta.diffs] }
 }

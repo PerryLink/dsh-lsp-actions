@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { FsVersion } from '@deepseek-ai/dsh-fs'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { ActionRunner, RunnerRequest } from '../src/runner.ts'
-import { registerCompletionTool, registerDiagnosticsTool, registerFormatTool } from '../src/tools.ts'
+import { registerCompletionTool, registerDiagnosticsTool, registerFormatTool, registerRenameTool } from '../src/tools.ts'
 import { FormatSandboxController } from '../src/sandbox.ts'
 import { createFakeContext, disposeFakeContext, fakeExec } from './helpers/fake-ctx.ts'
 import type { FakeContext } from './helpers/fake-ctx.ts'
@@ -31,6 +31,7 @@ function fakeRunner(results: {
     kind: 'completion'
     items: { label: string; detail?: string; insertText?: string; textEdit?: LspTextEdit }[]
   }
+  rename?: { kind: 'rename'; edits: Record<string, LspTextEdit[]> }
 }): { runner: ActionRunner; calls: RunnerRequest[] } {
   const calls: RunnerRequest[] = []
   const unexpected = (): never => {
@@ -71,6 +72,11 @@ function fakeRunner(results: {
     inlayHints: async (request) => {
       calls.push(request)
       return unexpected()
+    },
+    rename: async (request) => {
+      calls.push(request)
+      if (results.rename === undefined) throw new Error('unexpected runner result')
+      return results.rename
     },
   }
   return { runner, calls }
@@ -261,6 +267,21 @@ describe('tool presentation projections', () => {
       kind: 'formatted', file_path: 'a.ts', appliedEdits: 1, linesChanged: 1, before: 'a', after: 'b',
     })).toEqual({ diffs: [{ path: 'a.ts', oldText: 'a', newText: 'b' }] })
     expect(tool.output.presentationMeta({ file_path: 'a.ts' }, { kind: 'unchanged', file_path: 'a.ts' })).toEqual({ diffs: [] })
+  })
+
+  it('projects rename metadata as per-file diff cards for both outcome kinds', async () => {
+    registerRenameTool(fake.ctx as never, fakeRunner({}).runner, new FormatSandboxController(fake.ctx as never), CONFIG)
+    const tool = toolByName(fake, 'lsp_rename')
+    expect(tool.output.presentationMeta({ file_path: 'a.ts', line: 1, character: 1, new_name: 'next' }, {
+      kind: 'renamed', file_path: 'a.ts', new_name: 'next', filesChanged: 2, appliedEdits: 2,
+      diffs: [
+        { file_path: 'a.ts', before: 'a', after: 'b' },
+        { file_path: 'other.ts', before: 'c', after: 'd' },
+      ],
+    })).toEqual({ diffs: [{ path: 'a.ts', oldText: 'a', newText: 'b' }, { path: 'other.ts', oldText: 'c', newText: 'd' }] })
+    expect(tool.output.presentationMeta({ file_path: 'a.ts', line: 1, character: 1, new_name: 'next' }, {
+      kind: 'unchanged', file_path: 'a.ts', new_name: 'next',
+    })).toEqual({ diffs: [] })
   })
 })
 
@@ -469,6 +490,204 @@ describe('lsp_format permission matrix', () => {
       await expect(tool.execute({ file_path: 'a.ts' }, fakeExec(workspace))).rejects.toThrow(
         /\[sandbox: file access denied under workspace-write mode\]/,
       )
+    } finally {
+      await teardown(fake)
+    }
+  })
+})
+
+describe('lsp_rename tool', () => {
+  /** Build a fake whose workspace holds `a.ts` and `other.ts`, with the given services/fs options. */
+  async function fixture(options: {
+    fsOptions?: Parameters<typeof createFakeContext>[0]['fsOptions']
+    services?: Parameters<typeof createFakeContext>[0]['services']
+    writeIntent?: Parameters<typeof createFakeContext>[0]['writeIntent']
+  }): Promise<{ fake: FakeContext; workspace: string; aUri: string; otherUri: string }> {
+    const fake = await createFakeContext({
+      cwd: process.cwd(),
+      fsOptions: options.fsOptions,
+      services: options.services,
+      writeIntent: options.writeIntent,
+    })
+    const workspace = join(fake.fs.root, 'ws')
+    await mkdir(workspace)
+    await writeFile(join(workspace, 'a.ts'), 'const oldName = 1\n')
+    await writeFile(join(workspace, 'other.ts'), 'export { oldName }\n')
+    const aTarget = await fake.fs.resolve('a.ts', { cwd: workspace })
+    const otherTarget = await fake.fs.resolve('other.ts', { cwd: workspace })
+    return { fake, workspace, aUri: fake.fs.fileUrl(aTarget), otherUri: fake.fs.fileUrl(otherTarget) }
+  }
+
+  async function teardown(fake: FakeContext): Promise<void> {
+    await disposeFakeContext(fake)
+  }
+
+  const args = { file_path: 'a.ts', line: 1, character: 10, new_name: 'newName' }
+
+  /** The `oldName` token in `a.ts` (`const oldName = 1`), characters 6..13. */
+  const aToken = (newText: string): LspTextEdit => ({
+    range: { start: { line: 0, character: 6 }, end: { line: 0, character: 13 } },
+    newText,
+  })
+
+  it('applies workspace edits through write-intent and reports the per-file diffs', async () => {
+    const { fake, workspace, aUri, otherUri } = await fixture({
+      fsOptions: { sandboxMode: 'workspace-write' },
+      services: { sandboxPolicy: { resolve: () => ({ mode: 'workspace-write', workspaceRoot: workspace }) } },
+    })
+    try {
+      const { runner, calls } = fakeRunner({
+        rename: {
+          kind: 'rename',
+          edits: {
+            [aUri]: [aToken('newName')],
+            [otherUri]: [{ range: { start: { line: 0, character: 9 }, end: { line: 0, character: 16 } }, newText: 'newName' }],
+          },
+        },
+      })
+      registerRenameTool(fake.ctx as never, runner, new FormatSandboxController(fake.ctx as never), CONFIG)
+      const tool = toolByName(fake, 'lsp_rename')
+      const value = await tool.execute(args, fakeExec(workspace)) as {
+        kind: string
+        new_name: string
+        filesChanged: number
+        appliedEdits: number
+        diffs: Array<{ file_path: string; before: string; after: string }>
+      }
+      expect(value.kind).toBe('renamed')
+      expect(value.new_name).toBe('newName')
+      expect(value.filesChanged).toBe(2)
+      expect(value.appliedEdits).toBe(2)
+      expect(value.diffs).toHaveLength(2)
+      expect(await readFile(join(workspace, 'a.ts'), 'utf8')).toBe('const newName = 1\n')
+      expect(await readFile(join(workspace, 'other.ts'), 'utf8')).toBe('export { newName }\n')
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.position).toEqual({ line: 0, character: 9 })
+      expect(fake.writeIntents).toHaveLength(2)
+      // Two pre-flight observations plus one per completed write.
+      expect(fake.observed).toHaveLength(4)
+    } finally {
+      await teardown(fake)
+    }
+  })
+
+  it('fails loud as read-only BEFORE any server round-trip and writes nothing', async () => {
+    const { fake, workspace } = await fixture({
+      fsOptions: { sandboxMode: 'read-only' },
+      services: { sandboxPolicy: { resolve: () => ({ mode: 'read-only', workspaceRoot: workspace }) } },
+    })
+    try {
+      const { runner, calls } = fakeRunner({})
+      registerRenameTool(fake.ctx as never, runner, new FormatSandboxController(fake.ctx as never), CONFIG)
+      const tool = toolByName(fake, 'lsp_rename')
+      await expect(tool.execute(args, fakeExec(workspace))).rejects.toThrow(
+        expect.objectContaining({ code: 'LSP_ACTION_READ_ONLY' }),
+      )
+      expect(calls).toHaveLength(0)
+      expect(await readFile(join(workspace, 'a.ts'), 'utf8')).toBe('const oldName = 1\n')
+      expect(fake.writeIntents).toHaveLength(0)
+    } finally {
+      await teardown(fake)
+    }
+  })
+
+  it('returns an unchanged result and writes nothing when the server has no edits', async () => {
+    const { fake, workspace } = await fixture({})
+    try {
+      const { runner } = fakeRunner({ rename: { kind: 'rename', edits: {} } })
+      registerRenameTool(fake.ctx as never, runner, new FormatSandboxController(fake.ctx as never), CONFIG)
+      const tool = toolByName(fake, 'lsp_rename')
+      const value = await tool.execute(args, fakeExec(workspace)) as { kind: string; new_name: string }
+      expect(value).toEqual({ kind: 'unchanged', file_path: 'a.ts', new_name: 'newName' })
+      expect(fake.writeIntents).toHaveLength(0)
+    } finally {
+      await teardown(fake)
+    }
+  })
+
+  it('refuses edits outside the workspace as a conflict before writing anything', async () => {
+    const { fake, workspace, aUri } = await fixture({})
+    try {
+      const { runner } = fakeRunner({
+        rename: {
+          kind: 'rename',
+          edits: {
+            [aUri]: [aToken('newName')],
+            'file:///elsewhere/x.ts': [edit(0, 'oldName', 'newName')],
+          },
+        },
+      })
+      registerRenameTool(fake.ctx as never, runner, new FormatSandboxController(fake.ctx as never), CONFIG)
+      const tool = toolByName(fake, 'lsp_rename')
+      await expect(tool.execute(args, fakeExec(workspace))).rejects.toThrow(
+        expect.objectContaining({ code: 'LSP_ACTION_CONFLICT' }),
+      )
+      await expect(tool.execute(args, fakeExec(workspace))).rejects.toThrow(/outside the workspace/)
+      expect(fake.writeIntents).toHaveLength(0)
+      expect(await readFile(join(workspace, 'a.ts'), 'utf8')).toBe('const oldName = 1\n')
+    } finally {
+      await teardown(fake)
+    }
+  })
+
+  it('rejects overlapping edits in one file as a conflict before writing anything', async () => {
+    const { fake, workspace, aUri } = await fixture({})
+    try {
+      const { runner } = fakeRunner({
+        rename: {
+          kind: 'rename',
+          edits: {
+            [aUri]: [
+              { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 8 } }, newText: 'A' },
+              { range: { start: { line: 0, character: 4 }, end: { line: 0, character: 9 } }, newText: 'B' },
+            ],
+          },
+        },
+      })
+      registerRenameTool(fake.ctx as never, runner, new FormatSandboxController(fake.ctx as never), CONFIG)
+      const tool = toolByName(fake, 'lsp_rename')
+      await expect(tool.execute(args, fakeExec(workspace))).rejects.toThrow(
+        expect.objectContaining({ code: 'LSP_ACTION_CONFLICT' }),
+      )
+      expect(fake.writeIntents).toHaveLength(0)
+    } finally {
+      await teardown(fake)
+    }
+  })
+
+  it('drops no-op files from the write plan', async () => {
+    const { fake, workspace, aUri, otherUri } = await fixture({})
+    try {
+      const { runner } = fakeRunner({
+        rename: {
+          kind: 'rename',
+          edits: {
+            [aUri]: [aToken('newName')],
+            [otherUri]: [{ range: { start: { line: 0, character: 9 }, end: { line: 0, character: 16 } }, newText: 'oldName' }],
+          },
+        },
+      })
+      registerRenameTool(fake.ctx as never, runner, new FormatSandboxController(fake.ctx as never), CONFIG)
+      const tool = toolByName(fake, 'lsp_rename')
+      const value = await tool.execute(args, fakeExec(workspace)) as { filesChanged: number; appliedEdits: number; diffs: unknown[] }
+      expect(value.filesChanged).toBe(1)
+      expect(value.appliedEdits).toBe(1)
+      expect(value.diffs).toHaveLength(1)
+      expect(fake.writeIntents).toHaveLength(1)
+    } finally {
+      await teardown(fake)
+    }
+  })
+
+  it('rejects a blank or multiline new_name before any server round-trip', async () => {
+    const { fake, workspace } = await fixture({})
+    try {
+      const { runner, calls } = fakeRunner({})
+      registerRenameTool(fake.ctx as never, runner, new FormatSandboxController(fake.ctx as never), CONFIG)
+      const tool = toolByName(fake, 'lsp_rename')
+      await expect(tool.execute({ ...args, new_name: '  ' }, fakeExec(workspace))).rejects.toThrow(/non-empty/)
+      await expect(tool.execute({ ...args, new_name: 'a\nb' }, fakeExec(workspace))).rejects.toThrow(/single-line/)
+      expect(calls).toHaveLength(0)
     } finally {
       await teardown(fake)
     }

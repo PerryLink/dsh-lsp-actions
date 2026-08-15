@@ -247,6 +247,113 @@ describe('LspActionClient against the fixture server', () => {
     }
   })
 
+  it('renames the word at the cursor after a prepareRename round trip', async () => {
+    const client = makeClient()
+    const { request, server } = await prepare(client, fixtureServer())
+    try {
+      const result = await client.rename(server, { ...request, position: { line: 0, character: 1 } }, 'newName')
+      expect(result.kind).toBe('rename')
+      const uris = Object.keys(result.edits)
+      expect(uris).toHaveLength(1)
+      expect(uris[0]).toContain('/a.ts')
+      expect(result.edits[uris[0]]).toEqual([
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, newText: 'newName' },
+      ])
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('fails as no-symbol when prepareRename answers null', async () => {
+    const client = makeClient()
+    const { request, server } = await prepare(client, fixtureServer(['--no-rename-symbol']))
+    try {
+      await expect(client.rename(server, { ...request, position: { line: 0, character: 1 } }, 'newName')).rejects.toThrow(
+        expect.objectContaining({ code: 'LSP_ACTION_NO_SYMBOL' }),
+      )
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('serves rename when the server lacks prepareRename', async () => {
+    const client = makeClient()
+    const { request, server } = await prepare(client, fixtureServer(['--no-prepare-rename']))
+    try {
+      const result = await client.rename(server, { ...request, position: { line: 0, character: 1 } }, 'newName')
+      expect(result.kind).toBe('rename')
+      expect(Object.values(result.edits)[0]?.[0]?.newText).toBe('newName')
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('decodes cross-file rename positions per document on a utf-8 server', async () => {
+    const client = makeClient()
+    await writeFile(join(workspace, 'other.ts'), 'éé other\n')
+    const { request, server } = await prepare(client, fixtureServer(['--utf8', '--rename-multi-file']))
+    try {
+      const result = await client.rename(server, { ...request, position: { line: 0, character: 1 } }, 'newName')
+      expect(result.kind).toBe('rename')
+      const entries = Object.entries(result.edits)
+      expect(entries).toHaveLength(2)
+      const origin = entries.find(([uri]) => uri.includes('/a.ts'))
+      const other = entries.find(([uri]) => uri.includes('/other.ts'))
+      // The origin word is ASCII, so its utf-8 range equals the utf-16 range.
+      expect(origin?.[1]).toEqual([
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } }, newText: 'newName' },
+      ])
+      // 'éé other': the fixture's utf-8 bytes 5..10 decode to utf-16 characters 3..8.
+      expect(other?.[1]).toEqual([
+        { range: { start: { line: 0, character: 3 }, end: { line: 0, character: 8 } }, newText: 'newName' },
+      ])
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('leaves cross-file utf-16 positions untouched without reading the target', async () => {
+    const client = makeClient()
+    // other.ts is intentionally absent: a utf-16 server needs no target read for position decoding.
+    const { request, server } = await prepare(client, fixtureServer(['--rename-multi-file']))
+    try {
+      const result = await client.rename(server, { ...request, position: { line: 0, character: 1 } }, 'newName')
+      const other = Object.entries(result.edits).find(([uri]) => uri.includes('/other.ts'))
+      expect(other?.[1]).toEqual([
+        { range: { start: { line: 0, character: 3 }, end: { line: 0, character: 8 } }, newText: 'newName' },
+      ])
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('fails a utf-8 cross-file rename as a conflict when the target cannot be decoded', async () => {
+    const client = makeClient()
+    // other.ts absent: the client cannot read the target text to decode the utf-8 positions.
+    const { request, server } = await prepare(client, fixtureServer(['--utf8', '--rename-multi-file']))
+    try {
+      await expect(client.rename(server, { ...request, position: { line: 0, character: 1 } }, 'newName')).rejects.toThrow(
+        expect.objectContaining({ code: 'LSP_ACTION_CONFLICT' }),
+      )
+      await expect(client.rename(server, { ...request, position: { line: 0, character: 1 } }, 'newName')).rejects.toThrow(/cannot be read/)
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('refuses file operations in a rename result', async () => {
+    const client = makeClient()
+    const { request, server } = await prepare(client, fixtureServer(['--rename-file-ops']))
+    try {
+      await expect(client.rename(server, { ...request, position: { line: 0, character: 1 } }, 'newName')).rejects.toThrow(
+        expect.objectContaining({ code: 'LSP_ACTION_UNSUPPORTED' }),
+      )
+      await expect(client.rename(server, { ...request, position: { line: 0, character: 1 } }, 'newName')).rejects.toThrow(/file operation/)
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
   it('fails a bad server startup loudly with the stderr tail', async () => {
     const client = makeClient()
     const { request, server } = await prepare(client, fixtureServer(['--fail-start']))

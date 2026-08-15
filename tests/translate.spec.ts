@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  decodeTextEdits,
   negotiatePositionEncoding,
   normalizeCodeActions,
   normalizeCompletionItems,
@@ -8,6 +9,7 @@ import {
   normalizeInlayHints,
   normalizeSignatures,
   normalizeSymbols,
+  normalizeWorkspaceEdit,
   PositionCodec,
   requestMethod,
   supportsAction,
@@ -35,6 +37,7 @@ describe('requestMethod', () => {
     expect(requestMethod({ operation: 'documentSymbol' })).toBe('textDocument/documentSymbol')
     expect(requestMethod({ operation: 'signatureHelp' })).toBe('textDocument/signatureHelp')
     expect(requestMethod({ operation: 'inlayHint' })).toBe('textDocument/inlayHint')
+    expect(requestMethod({ operation: 'rename' })).toBe('textDocument/rename')
   })
 })
 
@@ -400,5 +403,70 @@ describe('normalizeInlayHints', () => {
     ['a non-boolean padding marker', [{ position: { line: 0, character: 0 }, label: 'x', paddingLeft: 'yes' }]],
   ])('rejects %s as malformed', (_label, payload) => {
     expect(() => normalizeInlayHints(payload)).toThrow(expect.objectContaining({ code: 'LSP_ACTION_MALFORMED_RESPONSE' }))
+  })
+})
+
+describe('normalizeWorkspaceEdit', () => {
+  const edit = (character: number): unknown => ({
+    range: { start: { line: 0, character }, end: { line: 0, character: character + 1 } },
+    newText: 'x',
+  })
+
+  it('groups a changes map by uri', () => {
+    expect(normalizeWorkspaceEdit({ changes: { 'file:///a.ts': [edit(0), edit(5)] } })).toEqual({
+      'file:///a.ts': [
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'x' },
+        { range: { start: { line: 0, character: 5 }, end: { line: 0, character: 6 } }, newText: 'x' },
+      ],
+    })
+  })
+
+  it('normalizes documentChanges text edits and merges with changes', () => {
+    expect(normalizeWorkspaceEdit({
+      changes: { 'file:///a.ts': [edit(0)] },
+      documentChanges: [{ textDocument: { uri: 'file:///b.ts', version: 1 }, edits: [edit(3)] }],
+    })).toEqual({
+      'file:///a.ts': [
+        { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'x' },
+      ],
+      'file:///b.ts': [
+        { range: { start: { line: 0, character: 3 }, end: { line: 0, character: 4 } }, newText: 'x' },
+      ],
+    })
+  })
+
+  it('returns an empty record for a null result', () => {
+    expect(normalizeWorkspaceEdit(null)).toEqual({})
+  })
+
+  it('refuses resource operations as unsupported', () => {
+    expect(() => normalizeWorkspaceEdit({
+      documentChanges: [{ kind: 'rename', oldUri: 'file:///a.ts', newUri: 'file:///b.ts' }],
+    })).toThrow(expect.objectContaining({ code: 'LSP_ACTION_UNSUPPORTED' }))
+  })
+
+  it.each([
+    ['a missing payload', undefined],
+    ['a non-object payload', 'nope'],
+    ['a non-array documentChanges', { documentChanges: {} }],
+    ['a documentChange without a textDocument uri', { documentChanges: [{ edits: [] }] }],
+    ['a documentChange without edits', { documentChanges: [{ textDocument: { uri: 'file:///a.ts' } }] }],
+  ])('rejects %s as malformed', (_label, payload) => {
+    expect(() => normalizeWorkspaceEdit(payload)).toThrow(expect.objectContaining({ code: 'LSP_ACTION_MALFORMED_RESPONSE' }))
+  })
+})
+
+describe('decodeTextEdits', () => {
+  it('passes edits through unchanged for utf-16 documents', () => {
+    const edits = [{ range: { start: { line: 0, character: 2 }, end: { line: 0, character: 3 } }, newText: 'x' }]
+    expect(decodeTextEdits(edits, undefined, 'utf-16')).toEqual(edits)
+  })
+
+  it('decodes utf-8 positions through the document codec', () => {
+    const codec = new PositionCodec('éé other')
+    const edits = [{ range: { start: { line: 0, character: 5 }, end: { line: 0, character: 10 } }, newText: 'next' }]
+    expect(decodeTextEdits(edits, codec, 'utf-8')).toEqual([
+      { range: { start: { line: 0, character: 3 }, end: { line: 0, character: 8 } }, newText: 'next' },
+    ])
   })
 })

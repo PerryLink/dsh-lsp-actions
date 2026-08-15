@@ -10,10 +10,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import { FsError } from '@deepseek-ai/dsh-fs'
+import type { FsTarget } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { escalationHintMarker, sandboxDenialMarker } from '@deepseek-ai/dsh-sandbox'
 import { applyEdits } from './edits.ts'
-import { canonicalizeWorkspace, readHostSource } from './host.ts'
+import { canonicalizeWorkspace, readHostSource, workspaceRelativePath } from './host.ts'
+import type { HostWorkspace } from './host.ts'
 import type { ActionRunner, RunnerRequest } from './runner.ts'
 import { FormatSandboxController } from './sandbox.ts'
 import type { ResolvedConfig } from './servers.ts'
@@ -22,12 +24,15 @@ import {
   formatAppliedEdits,
   formatCompletionList,
   formatDiagnostics,
+  formatRenameResult,
   presentLspCompletionCall,
   presentLspCompletionResult,
   presentLspDiagnosticsCall,
   presentLspDiagnosticsResult,
   presentLspFormatCall,
   presentLspFormatResult,
+  presentLspRenameCall,
+  presentLspRenameResult,
 } from './render.ts'
 import type { LspPosition, LspRange } from './vocabulary.ts'
 import { LspActionError } from './vocabulary.ts'
@@ -164,7 +169,7 @@ export function registerFormatTool(
           end: { type: 'object', additionalProperties: false, required: true, properties: { line: { type: 'integer', required: true }, character: { type: 'integer', required: true } } },
         },
       },
-      ...sandbox.escalationModes.length > 0 ? sandbox.schemaFields() : {},
+      ...sandbox.escalationModes.length > 0 ? sandbox.schemaFields('formatting') : {},
     },
     output: {
       schema: {
@@ -232,7 +237,7 @@ export function registerFormatTool(
       try {
         outcome = await ctx.fs.writeText(request.source.target, newText, intent, exec.signal, sandboxPolicy)
       } catch (error) {
-        throw mapFormatWriteFailure(sandbox.mapError(error, sandboxPolicy))
+        throw mapWriteFailure(sandbox.mapError(error, sandboxPolicy), 'lsp_format')
       }
       ctx.emit('fs/observed', request.source.target, { kind: 'present', version: outcome.version }, exec)
       return {
@@ -334,6 +339,182 @@ export function registerCompletionTool(ctx: Context, runner: ActionRunner, confi
   }))
 }
 
+/** The raw argument shape of `lsp_rename` (escalation fields included under a confining fs). */
+export interface RenameToolArgs {
+  file_path: string
+  line: number
+  character: number
+  new_name: string
+  sandbox_permissions?: string
+  justification?: string
+}
+
+/**
+ * Register the `lsp_rename` tool: a server-verified symbol rename applied through the filesystem
+ * write-intent waterfall and the per-call sandbox policy, exactly like `lsp_format` but across
+ * every document the server edits. Read-only sandbox modes fail loud before any server
+ * round-trip; a stale on-disk file fails as a structured conflict.
+ * @param ctx - the plugin context.
+ * @param runner - the seam-first action runner.
+ * @param sandbox - the shared escalation controller.
+ * @param config - the resolved plugin configuration.
+ */
+export function registerRenameTool(
+  ctx: Context,
+  runner: ActionRunner,
+  sandbox: FormatSandboxController,
+  config: ResolvedConfig,
+): void {
+  ctx.tools.register(defineTool({
+    name: 'lsp_rename',
+    description:
+      'Rename the symbol at a one-based UTF-16 cursor position through its language server and apply the workspace-wide edits, returning the applied diffs. Writes go through the filesystem write-intent policy; a file that changed on disk since it was read fails the call as a conflict.',
+    parameters: {
+      file_path: { type: 'string', required: true, description: 'The source file containing the symbol, relative to the workspace or absolute.' },
+      line: { type: 'integer', required: true, description: 'One-based line of the symbol.' },
+      character: { type: 'integer', required: true, description: 'One-based UTF-16 column of the symbol.' },
+      new_name: { type: 'string', required: true, description: 'The new symbol name.' },
+      ...sandbox.escalationModes.length > 0 ? sandbox.schemaFields('rename') : {},
+    },
+    output: {
+      schema: {
+        oneOf: [
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              kind: { type: 'string', required: true, const: 'renamed' },
+              file_path: { type: 'string', required: true },
+              new_name: { type: 'string', required: true },
+              filesChanged: { type: 'integer', required: true },
+              appliedEdits: { type: 'integer', required: true },
+              diffs: {
+                type: 'array',
+                required: true,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    file_path: { type: 'string', required: true },
+                    before: { type: 'string', required: true },
+                    after: { type: 'string', required: true },
+                  },
+                },
+              },
+            },
+          },
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              kind: { type: 'string', required: true, const: 'unchanged' },
+              file_path: { type: 'string', required: true },
+              new_name: { type: 'string', required: true },
+            },
+          },
+        ],
+      },
+      render: (args, value) => value.kind === 'renamed'
+        ? [{ type: 'text', text: formatRenameResult(value.file_path, args.line, args.character, value.new_name, value.appliedEdits, value.filesChanged) }]
+        : [{ type: 'text', text: `Renamed the symbol at ${value.file_path}:${args.line}:${args.character} to "${value.new_name}": the server returned no changes.` }],
+      presentationMeta: (_args, value) => value.kind === 'renamed'
+        ? { diffs: value.diffs.map((diff: { file_path: string; before: string; after: string }) => ({ path: diff.file_path, oldText: diff.before, newText: diff.after })) }
+        : { diffs: [] },
+    },
+    timeoutMs: config.timeoutMs,
+    async execute(args: RenameToolArgs, exec) {
+      const filePath = parseFilePath(args.file_path)
+      const newName = parseNewName(args.new_name)
+      const position = parseCursor(args.line, args.character)
+      const workspaceRoot = requireWorkspace(exec)
+      // The per-call sandbox policy resolves BEFORE anything executes, so a read-only session
+      // never pays for a server round-trip — the same fail-fast contract as lsp_format.
+      const sandboxPolicy = await sandbox.resolvePolicy('lsp_rename', args, exec)
+      if (sandboxPolicy !== undefined && sandboxPolicy.mode === 'read-only') {
+        throw new LspActionError(
+          `${sandboxDenialMarker(sandboxPolicy.mode)}\n${escalationHintMarker('operation')}`,
+          'LSP_ACTION_READ_ONLY',
+        )
+      }
+      const request = await prepareRequest(ctx, config, filePath, workspaceRoot, exec)
+      const result = await runner.rename({ ...request, position }, newName, exec.signal)
+      const targets = Object.entries(result.edits)
+      if (targets.length === 0) {
+        return { kind: 'unchanged' as const, file_path: filePath, new_name: newName }
+      }
+      // Pre-flight: read, contain, observe, and apply every target BEFORE the first write, so an
+      // out-of-workspace edit or an overlapping/out-of-bounds edit fails before any byte is
+      // written. No-op files (the edit applies to nothing) are dropped.
+      const planned: Array<{ filePath: string; target: FsTarget; before: string; after: string; edits: number }> = []
+      for (const [uri, edits] of targets) {
+        const relative = workspaceRelativePath(request.workspace, uri)
+        if (relative === undefined) {
+          throw new LspActionError(
+            `the language server's rename edits a file outside the workspace (${uri}); refusing to apply it`,
+            'LSP_ACTION_CONFLICT',
+          )
+        }
+        const source = await readHostSource(ctx.fs, relative, request.workspace, config.maxDocumentBytes, exec.signal)
+        if (source.version !== undefined) {
+          ctx.emit('fs/observed', source.target, { kind: 'present', version: source.version }, exec)
+        }
+        const after = applyEdits(source.text, edits)
+        if (after !== source.text) {
+          planned.push({ filePath: relative, target: source.target, before: source.text, after, edits: edits.length })
+        }
+      }
+      if (planned.length === 0) {
+        return { kind: 'unchanged' as const, file_path: filePath, new_name: newName }
+      }
+      let appliedEdits = 0
+      let written = 0
+      const diffs: Array<{ file_path: string; before: string; after: string }> = []
+      for (const file of planned) {
+        const intent = await ctx.waterfall('fs/write-intent', file.target, exec, () => undefined)
+        try {
+          const outcome = await ctx.fs.writeText(file.target, file.after, intent, exec.signal, sandboxPolicy)
+          ctx.emit('fs/observed', file.target, { kind: 'present', version: outcome.version }, exec)
+          appliedEdits += file.edits
+          written += 1
+          diffs.push({ file_path: file.filePath, before: outcome.before ?? file.before, after: outcome.after })
+        } catch (error) {
+          const mapped = mapWriteFailure(sandbox.mapError(error, sandboxPolicy), 'lsp_rename')
+          if (mapped instanceof LspActionError && mapped.code === 'LSP_ACTION_CONFLICT' && written > 0) {
+            throw new LspActionError(
+              `${mapped.message} (${written} of ${planned.length} file${planned.length === 1 ? '' : 's'} were already updated)`,
+              'LSP_ACTION_CONFLICT',
+              { cause: error },
+            )
+          }
+          throw mapped
+        }
+      }
+      return {
+        kind: 'renamed' as const,
+        file_path: filePath,
+        new_name: newName,
+        filesChanged: planned.length,
+        appliedEdits,
+        diffs,
+      }
+    },
+    presentCall: presentLspRenameCall,
+    presentResult: presentLspRenameResult,
+  }))
+}
+
+/**
+ * Validate a new symbol name: non-empty after trimming, no embedded newlines.
+ * @param newName - the caller-supplied name.
+ * @returns the trimmed name.
+ */
+export function parseNewName(newName: string): string {
+  const name = newName.trim()
+  if (name.length === 0) throw new Error('new_name must be a non-empty string')
+  if (/[\r\n]/.test(newName)) throw new Error('new_name must be a single-line identifier')
+  return name
+}
+
 /** The shared preparation every tool runs: workspace + contained, byte-capped source read. */
 export async function prepareRequest(
   ctx: Context,
@@ -341,10 +522,10 @@ export async function prepareRequest(
   filePath: string,
   workspaceRoot: string,
   exec: ToolExecution,
-): Promise<RunnerRequest & { source: NonNullable<RunnerRequest['source']> }> {
+): Promise<RunnerRequest & { source: NonNullable<RunnerRequest['source']>; workspace: HostWorkspace }> {
   const workspace = await canonicalizeWorkspace(ctx.fs, workspaceRoot, exec.signal)
   const source = await readHostSource(ctx.fs, filePath, workspace, config.maxDocumentBytes, exec.signal)
-  return { filePath, workspaceRoot, source }
+  return { filePath, workspaceRoot, source, workspace }
 }
 
 /** Validate a non-blank file path. */
@@ -441,16 +622,17 @@ function projectCompletionItem(item: {
 }
 
 /**
- * Map a formatting write failure for the model: sandbox denials become the shared `[sandbox: …]`
+ * Map a mutation write failure for the model: sandbox denials become the shared `[sandbox: …]`
  * marker (via the controller), while stale/not-observed failures become the structured conflict
- * that asks the model to choose between re-running and applying the diff manually.
+ * that asks the model to choose between re-running and applying the changes manually.
  * @param error - the already sandbox-mapped error.
+ * @param action - the tool name, named in the recovery advice.
  * @returns the error to throw.
  */
-function mapFormatWriteFailure(error: unknown): unknown {
+function mapWriteFailure(error: unknown, action: string): unknown {
   if (error instanceof FsError && (error.code === 'FS_STALE_VERSION' || error.code === 'FS_NOT_OBSERVED')) {
     return new LspActionError(
-      'the file changed on disk after it was read, and the write policy refused to overwrite it — re-read the file, then either re-run lsp_format or apply the diff manually with edit/write',
+      `the file changed on disk after it was read, and the write policy refused to overwrite it — re-read the file, then either re-run ${action} or apply the changes manually with edit/write`,
       'LSP_ACTION_CONFLICT',
       { cause: error },
     )

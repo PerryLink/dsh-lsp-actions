@@ -135,6 +135,50 @@ export function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw signal.reason
 }
 
+/** Normalize a `file:` URI for identity comparison: decoded path, case-folded on Windows. */
+export function normalizeFileUri(uri: string): string {
+  return foldFileUri(decodeFileUri(uri))
+}
+
+/** Decode a `file:` URI's percent escapes without case-folding, so path slicing stays exact. */
+export function decodeFileUri(uri: string): string {
+  try {
+    const url = new URL(uri)
+    if (url.protocol !== 'file:') return uri
+    return `file://${decodeURIComponent(url.pathname)}`
+  } catch {
+    return uri
+  }
+}
+
+function foldFileUri(uri: string): string {
+  if (process.platform !== 'win32') return uri
+  const marker = 'file://'
+  if (!uri.startsWith(marker)) return uri
+  return `${marker}${uri.slice(marker.length).toLowerCase()}`
+}
+
+/**
+ * The workspace-relative path one document URI points at, when the URI lies under the canonical
+ * workspace URI. Servers re-spell the root URI sent at `initialize` (lowercase drive letters and
+ * percent-encoded colons on Windows, a trailing slash on either side), so containment is judged on
+ * decoded, case-insensitive forms while the relative path itself is sliced from the decoded URI —
+ * a normalized string can differ in length from the raw one, which would shift the cut.
+ * @param workspace - the canonical workspace.
+ * @param uri - the document URI the server named.
+ * @returns the relative path (`.` for the workspace root itself), or undefined when the URI does
+ *   not fall under the workspace.
+ */
+export function workspaceRelativePath(workspace: HostWorkspace, uri: string): string | undefined {
+  const root = decodeFileUri(workspace.fileUrl)
+  const decoded = decodeFileUri(uri)
+  const identity = (candidate: string): string => process.platform === 'win32' ? candidate.toLowerCase() : candidate
+  if (identity(decoded) === identity(root)) return '.'
+  const prefix = root.endsWith('/') ? root : `${root}/`
+  if (!identity(decoded).startsWith(identity(prefix))) return undefined
+  return decoded.slice(prefix.length)
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }

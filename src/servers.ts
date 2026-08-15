@@ -14,7 +14,8 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647
 
 const DEFAULT_MAX_MESSAGE_BYTES = 16_000_000
 const DEFAULT_MAX_STDERR_BYTES = 1_000_000
-const DEFAULT_MAX_DOCUMENT_BYTES = 4_000_000
+/** The default byte cap for any single source document a tool opens for a language server. */
+export const DEFAULT_MAX_DOCUMENT_BYTES = 4_000_000
 const DEFAULT_KILL_GRACE_MS = 2_000
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000
 const DEFAULT_DIAGNOSTICS_SETTLE_MS = 2_000
@@ -186,7 +187,7 @@ export function routeFile(servers: readonly ResolvedServer[], filePath: string):
 }
 
 /** The first extension mapping's language id, used when a glob route wins without an extension hit. */
-function firstLanguageId(server: ResolvedServer): string {
+export function firstLanguageId(server: ResolvedServer): string {
   const languageId = Object.values(server.entry.extensionToLanguage)[0]
   if (languageId === undefined) throw new Error(`lsp-actions: server "${server.serverId}" maps no extensions`)
   return languageId
