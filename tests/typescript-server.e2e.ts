@@ -2,7 +2,8 @@
  * Real-server verification: typescript-language-server over the plugin's assembled stack (apply →
  * tools → runner → own client → stdio spawn). Skipped when the server binary is unavailable; run
  * with LSP_ACTIONS_TSLS to point at another checkout's copy. This is the "真实语言服务器实测"
- * deliverable gate: diagnostics, formatting (applied through write-intent), and completion.
+ * deliverable gate: diagnostics, formatting (applied through write-intent), completion, symbol
+ * search, and rename.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
