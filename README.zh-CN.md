@@ -185,6 +185,12 @@ pnpm build           # 产出 lib/
 
 CI 在每次推送与 PR 上运行 lint/构建/测试矩阵 + 覆盖率门禁。推送 `v*` tag 会触发发布工作流：先验证全套测试再发布到 npm —— 需要在仓库里一次性配置 `NPM_TOKEN` Actions secret（发布权限的 npm access token）。版本号在打 tag 前于 `package.json` / `CHANGELOG.md` 中手动提升。
 
+## 贡献者
+
+感谢为本项目做出贡献的每一个人：
+
+- [PerryLink](https://github.com/PerryLink) —— 插件本体：LSP 动作客户端与服务器生命周期、全部八个工具、测试、CI 与文档。
+
 ## License
 
 [Apache License 2.0](LICENSE)

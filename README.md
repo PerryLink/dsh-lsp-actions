@@ -185,6 +185,12 @@ pnpm build           # emits lib/
 
 CI runs the lint/build/test matrix plus the coverage gate on every push and pull request. Pushing a `v*` tag triggers the publish workflow, which verifies the suite and publishes the package to npm — it needs an `NPM_TOKEN` Actions secret (a publish-scoped npm access token) set once on the repository. The version is bumped manually in `package.json`/`CHANGELOG.md` before tagging.
 
+## Contributors
+
+Thanks to everyone who has contributed to this project:
+
+- [PerryLink](https://github.com/PerryLink) — the plugin itself: the LSP action client and server lifecycle, all eight tools, tests, CI, and documentation.
+
 ## License
 
 [Apache License 2.0](LICENSE)

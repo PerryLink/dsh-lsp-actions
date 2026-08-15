@@ -175,6 +175,12 @@ pnpm run test:coverage   # द्वार: पंक्तियाँ/कथ�
 pnpm build           # lib/ उत्पन्न करता है
 ```
 
+## योगदानकर्ता
+
+इस प्रोजेक्ट में योगदान देने वाले सभी लोगों का धन्यवाद:
+
+- [PerryLink](https://github.com/PerryLink) — प्लगइन स्वयं: LSP एक्शन क्लाइंट व server जीवनचक्र, सभी आठ टूल, टेस्ट, CI और दस्तावेज़ीकरण।
+
 ## License
 
 [Apache License 2.0](LICENSE)

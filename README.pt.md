@@ -175,6 +175,12 @@ pnpm run test:coverage   # portões: linhas/instruções/funções ≥ 90%, ramo
 pnpm build           # emite lib/
 ```
 
+## Contribuidores
+
+Obrigado a todos que contribuíram com este projeto:
+
+- [PerryLink](https://github.com/PerryLink) — o plugin em si: o cliente de ações LSP e o ciclo de vida do servidor, as oito ferramentas, os testes, a CI e a documentação.
+
 ## License
 
 [Apache License 2.0](LICENSE)
