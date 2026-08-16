@@ -20,6 +20,8 @@
 
 ---
 
+> **नया (v0.3.0):** IDE इंटीग्रेशन बैकएंड — एडिटर एक्शन प्रोटोकॉल `lsp.actions.list` / `lsp.actions.run` / `lsp.events` (v1) और न्यूनतम VS Code उदाहरण। प्रोटोकॉल का प्रामाणिक विवरण [README.md](README.md) और [README.zh-CN.md](README.zh-CN.md) में है (आर्किटेक्चर, वर्ज़निंग और बैकवर्ड-कम्पैटिबिलिटी); पूरा wire स्पेक: [docs/editor-protocol.md](docs/editor-protocol.md) / [docs/editor-protocol.zh-CN.md](docs/editor-protocol.zh-CN.md)।
+
 ## यह प्लगइन आपके एजेंट को क्या देता है
 
 आधिकारिक DeepSeek Harness `ctx.lsp` seam **नेविगेशन** (go-to-definition, references, implementation, hover) को कवर करता है। `dsh-lsp-actions` **एक्शन सतह** को पूरा करता है — वह फीडबैक लूप जिसकी एक एजेंट को कोड लिखते और ठीक करते समय ज़रूरत होती है:

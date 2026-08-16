@@ -56,10 +56,26 @@ export interface LspServerEntry {
   idleTimeoutMs?: number
 }
 
+/** Editor-protocol configuration: the IDE-backend transport and its bounds. */
+export interface EditorConfig {
+  /**
+   * Serve the editor action protocol (`lsp.actions.list` / `lsp.actions.run` / `lsp.events`) over
+   * newline-delimited JSON-RPC on process stdio. Default false — enable it only in a dedicated
+   * headless backend composition whose stdout nothing else claims.
+   */
+  enabled?: boolean
+  /** Per-run timeout budget in ms, enforced inside the plugin. Default 60000. */
+  requestTimeoutMs?: number
+  /** Bounded LRU diagnostics-cache size in files (least-recently-used eviction). Default 64. */
+  diagnosticsCacheMaxFiles?: number
+}
+
 /** Plugin configuration: a named table of local language servers plus tool result caps. */
 export interface Config {
   /** Named server entries; empty disables the plugin's own client (the official seam may still serve). */
   servers: Record<string, LspServerEntry>
+  /** Editor action protocol (the IDE integration backend). */
+  editor?: EditorConfig
   /** Largest number of rendered diagnostics before an omission marker. Default 200. */
   maxDiagnostics?: number
   /** Largest number of rendered completion items before an omission marker. Default 20. */
@@ -98,8 +114,15 @@ export const LspServerEntry: z<LspServerEntry> = z.object({
   idleTimeoutMs: z.number().max(MAX_TIMER_DELAY_MS).default(DEFAULT_IDLE_TIMEOUT_MS),
 })
 
+export const EditorConfig: z<EditorConfig> = z.object({
+  enabled: z.boolean().default(false),
+  requestTimeoutMs: z.number().max(MAX_TIMER_DELAY_MS).default(60_000),
+  diagnosticsCacheMaxFiles: z.number().default(64),
+})
+
 export const Config: z<Config> = z.object({
   servers: z.dict(LspServerEntry).default({}),
+  editor: EditorConfig.default({}),
   maxDiagnostics: z.number().default(200),
   maxCompletionItems: z.number().default(20),
   maxCodeActions: z.number().default(50),
@@ -115,7 +138,10 @@ export const Config: z<Config> = z.object({
 export type ResolvedServerEntry = Required<LspServerEntry>
 
 /** The plugin config after schemastery filled every default. */
-export type ResolvedConfig = Required<Config>
+export type ResolvedConfig = Omit<Required<Config>, 'servers' | 'editor'> & {
+  servers: Record<string, ResolvedServerEntry>
+  editor: Required<EditorConfig>
+}
 
 /** One resolved, executable server plus its routing. */
 export interface ResolvedServer {

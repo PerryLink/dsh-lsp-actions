@@ -2,9 +2,9 @@
 
 # 🛰️ dsh-lsp-actions
 
-**DeepSeek Harness 的 LSP 动作面 —— 真实的语言服务器，真实的反馈。**
+**DeepSeek Harness 的 LSP 动作面 —— 真实的语言服务器，真实的反馈，以及面向编辑器的 IDE 集成后端。**
 
-为你的 agent 编辑循环提供诊断、格式化、补全、快速修复、符号、签名提示与内联提示，驱动它们的正是你 IDE 所用的那些语言服务器。
+为你的 agent 编辑循环提供诊断、格式化、补全、快速修复、符号、签名提示与内联提示，驱动它们的正是你 IDE 所用的那些语言服务器 —— 并提供稳定的**编辑器 action 协议**（`lsp.actions.list` / `lsp.actions.run` / `lsp.events`），让任何编辑器（先行 VS Code）通过 JSON-RPC 直接消费这些能力。
 
 [![Topic: dsh](https://img.shields.io/badge/Topic-dsh-4D6BFE?style=for-the-badge)](https://github.com/topics/dsh)
 [![Topic: dsh-plugin](https://img.shields.io/badge/Topic-dsh--plugin-8257D0?style=for-the-badge)](https://github.com/topics/dsh-plugin)
@@ -70,6 +70,12 @@ dsh plugin --profile <name> remove dsh-lsp-actions
             args: [--stdio]
             extensionToLanguage:
               ".py": python
+        # IDE 集成后端 —— Web/CLI profile 请保持关闭；只在专用 headless
+        # 后端组合中开启（stdout 即协议线）：
+        editor:
+          enabled: false
+          requestTimeoutMs: 60000
+          diagnosticsCacheMaxFiles: 64
         maxDiagnostics: 200
         maxCompletionItems: 20
         maxCodeActions: 50
@@ -82,6 +88,30 @@ dsh plugin --profile <name> remove dsh-lsp-actions
 
 八个工具**始终注册**。当 `servers` 表为空且没有挂载 `ctx.lsp` seam 时，调用会**响亮失败**（`LSP_ACTION_UNAVAILABLE`，错误信息指明该配置什么）—— 插件绝不会启动你没有配置的服务器。**在插件之后**挂载的 `ctx.lsp` seam 会在下一次调用时被识别（seam 探测按调用惰性解析，加载顺序无关）。
 
+## IDE 集成后端：编辑器 action 协议 v1
+
+本插件同时是 DSH 的 **IDE 集成后端**。在专用 headless 组合中设置 `editor.enabled: true` 后，它通过换行分帧的 JSON-RPC 2.0（与官方 SDK/ACP 传输同一线格式）提供稳定的编辑器协议：
+
+| 方法 | 作用 |
+| --- | --- |
+| `lsp.actions.list` | 返回 `lsp-actions/v1` 协议版本、动作目录（`diagnostics.get`、`completion.get`、`quickfix.apply`、`format`，逐个标注 `writes`）与可寻址的 DSH 会话。 |
+| `lsp.actions.run` | 执行一个动作，返回结构化 `{ requestId, action, status, result \| error }` 信封。错误携带下方稳定的 `LSP_ACTION_*` 码。 |
+| `lsp.events` | 订阅流式 `lsp.event` 通知：`diagnostics.updated`、`action.status`、`file.changed`、`sessions.changed`。 |
+
+所有写动作（`quickfix.apply`、`format`）都走**官方权限预设与审批**：`read-only` 会话在任何服务器往返前以 `LSP_ACTION_READ_ONLY` 拒绝；编辑走 `fs/write-intent` waterfall；`sandbox_permissions` + `justification` 升级对经官方 `approveEscalation` 询问（无应答方时 fail-closed）。完整线上规范（双语）：[`docs/editor-protocol.md`](docs/editor-protocol.md) · [`docs/editor-protocol.zh-CN.md`](docs/editor-protocol.zh-CN.md)。
+
+### 版本化与向后兼容承诺
+
+- 协议带版本 —— `lsp.actions.list` 返回 `protocol: "lsp-actions/v1"`、`version: 1`。**v1 已冻结：**字段名、动作 id、事件类型与错误码永久稳定。
+- 演进**只做加法**：新动作、新字段、新事件类型无需升版本；既有语义绝不原地变更；破坏性变更以新的 `protocol` 版本发布，服务端可并行服务多版本。
+- 客户端必须忽略未知字段、未知事件类型与未知动作，并按稳定错误 `code` 路由，绝不解析消息文本。
+
+### 最小 VS Code 扩展
+
+[`examples/vscode/`](examples/vscode/) 附带**纯 UI** 扩展（侧栏：DSH 会话、诊断列表、quickfix 一键应用、点击定位、格式化）及其经 ACP 风格 JSON-RPC 连接的 headless 后端组合（`backend/cordis.yml`）。扩展不实现任何 LSP 逻辑——所有能力与每一笔写入都属于插件。安装步骤、设置项与动图录制脚本见 [`examples/vscode/README.md`](examples/vscode/README.md)。
+
+![编辑器演示](docs/editor-demo.gif)
+
 ## 为什么按构造就安全
 
 - **格式化与重命名是真实写入，按 `write`/`edit` 同等对待。** 每个字节都经过 `fs/write-intent` waterfall（观测 → 守卫写 → 观测）与每次调用的沙箱策略。`lsp_rename` 会在第一笔写入**之前**对每个待改文件做预检（工作区包含性、重叠检查、字节上限读取），坏服务器响应不可能留下写了一半的重命名。
@@ -90,7 +120,8 @@ dsh plugin --profile <name> remove dsh-lsp-actions
 - **升级路径与官方工具一致。** 在受限文件系统下，`lsp_format` 与 `lsp_rename` 广告与 `write`/`edit` 相同的 `sandbox_permissions` / `justification` 一次性重试，经 `ctx.approval` 裁决。
 - **冲突绝不覆盖。** 若文件在读后被改动，守卫写以 `LSP_ACTION_CONFLICT` 失败，并让模型二选一：重读后重跑，或手工应用 diff。
 - **超时是平台职责。** 每个工具声明 `timeoutMs`，由官方 `dsh-tool-call-timeout-policy` 执行，所有 await 尊重 `exec.signal`。
-- **不缓存任何东西。** 结果只存在于会话日志，无跨会话持久化。
+- **模型路径不缓存任何东西。** 结果只存在于会话日志，无跨会话持久化。编辑器协议只有一处有界缓存 —— LRU 诊断快照缓存（配置 `editor.diagnosticsCacheMaxFiles`），带新鲜度戳，随文件系统观察与本插件自身写入失效，绝不跨重启持久化。
+- **提示词卫生。** 本插件不向会话系统提示词注入任何 persona 或提示词段落——面向模型的接口只有八个工具 Schema。若未来新增任何提示词段落，必须以一句简短角色陈述开头并保持短小（对齐官方 Minimal persona 风格：`You are a helpful software engineer assistant.`）。
 - **坏服务器响亮失败。** 命令缺失在加载期即失败；启动即死的服务器以 `LSP_ACTION_SERVER_FAILED` + stderr 尾部失败（启动失败先自动换新进程重试一次）。
 
 ## 架构
@@ -110,12 +141,42 @@ lsp_symbols / lsp_signature / lsp_inlay_hints / lsp_rename
 
 seam 扩展已向上游提案（`upstream/lsp-action-seam.patch`，PR 描述见 `upstream/PR-description.md`）。合入后插件无需改动即自动迁移 —— 内置客户端停止被使用即可。内置客户端会保留为 `servers` 表的独立兜底。完整调研与设计笔记：[`docs/seam-extension-notes.md`](docs/seam-extension-notes.md)、[`upstream/README.md`](upstream/README.md)。
 
+**编辑器协议**复用同一 runner、同一写入路径与同一权限机制：
+
+```
+                 ┌────────────────────────────────────────────────────┐
+                 │ 一个 DSH 运行时（headless 编辑器后端）             │
+ VS Code（UI）───┤  编辑器 action 协议 —— 本插件                      │
+                 │  lsp.actions.list / run / lsp.events               │
+                 │  (editor.enabled: true；同一 seam-first runner)    │
+                 ├────────────────────────────────────────────────────┤
+ 官方 ACP ───────┤  @deepseek-ai/dsh-acp —— agent 对话会话            │
+ 客户端          │  session/new · prompt · session/request_permission │
+                 ├────────────────────────────────────────────────────┤
+ Python SDK ─────┤  @deepseek-ai/dsh-sdk-jsonrpc-server               │
+ (deepseek-      │  session/prompt · session.event 通知               │
+  harness-sdk)   └────────────────────────────────────────────────────┘
+```
+
+- **官方 ACP server** 是 agent 对话传输；其会话中的 agent 可调用 `lsp_*` 工具，ACP 客户端经 `session/request_permission` 应答编辑器写升级（见 [`docs/editor-protocol.md`](docs/editor-protocol.md)）。
+- **Python SDK**（`pip install deepseek-harness-sdk`）经官方 SDK 线驱动同一运行时；编辑器协议与其共享线格式，SDK 级客户端可直接调用 `lsp.actions.*`。
+
 ## 配置参考
 
 ```ts
 interface Config {
   /** 命名的语言服务器；为空 = 插件自带客户端不服务任何文件。 */
   servers?: Record<string, LspServerEntry>
+  /** 编辑器 action 协议（IDE 集成后端）。 */
+  editor?: {
+    /** 经 JSON-RPC stdio 服务 lsp.actions.*。默认 false —— 只在专用 headless
+     *  后端组合中开启，该组合的 stdout 不得被任何其他东西占用。 */
+    enabled?: boolean             // 默认 false
+    /** 每次运行超时预算（毫秒），插件内部强制。 */
+    requestTimeoutMs?: number     // 默认 60000
+    /** 有界 LRU 诊断缓存大小（按文件计，LRU 淘汰）。 */
+    diagnosticsCacheMaxFiles?: number  // 默认 64
+  }
   maxDiagnostics?: number        // 默认 200
   maxCompletionItems?: number    // 默认 20
   maxCodeActions?: number        // 默认 50
@@ -160,6 +221,10 @@ interface LspServerEntry {
 | `LSP_ACTION_READ_ONLY` | 会话沙箱模式禁止格式化/重命名写入。 |
 | `LSP_ACTION_WORKSPACE_REQUIRED` | 调用会话没有可扎根的 workspace cwd。 |
 | `LSP_ACTION_NO_SYMBOL` | 服务器在光标位置找不到可重命名的符号。 |
+| `LSP_ACTION_UNKNOWN` | 编辑器协议：未知动作 id，或没有 code action 匹配 `title`/`index`。 |
+| `LSP_ACTION_INVALID_ARGS` | 编辑器协议：动作参数不合法。 |
+| `LSP_ACTION_APPROVAL_UNAVAILABLE` | 编辑器协议：官方审批路径未能授予更宽沙箱模式（fail-closed）。 |
+| `LSP_PROTOCOL_VERSION_UNSUPPORTED` | 编辑器协议：该运行声明的协议版本不被本服务端支持。 |
 
 ### 宿主版本支持
 
@@ -176,10 +241,12 @@ interface LspServerEntry {
 ```sh
 pnpm install
 pnpm run lint        # oxlint 检查 src/ 与 tests/
-pnpm test            # 240+ 测试：单元 + fixture 服务器集成 + 真实 tsls e2e
+pnpm test            # 290+ 测试：单元 + fixture 服务器集成 + 编辑器协议 e2e + 真实 tsls e2e
 pnpm run test:coverage   # 门禁：行/语句/函数 ≥ 90%，分支 ≥ 85%
 pnpm build           # 产出 lib/
 ```
+
+编辑器协议有专属覆盖：[`tests/editor-cache.spec.ts`](tests/editor-cache.spec.ts)（有界 LRU）、[`tests/editor-protocol.spec.ts`](tests/editor-protocol.spec.ts)（服务语义、权限门禁、超时，以及经 JSON-RPC 帧对 fixture LSP 服务器的诊断 → quickfix → format 全链路）。`examples/vscode/` 的后端与扩展是独立的 npm 工程 —— 见 [`examples/vscode/README.md`](examples/vscode/README.md)。
 
 ### 发布
 

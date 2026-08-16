@@ -3,6 +3,57 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.3.0 — 2026-08-19
+
+### Added
+
+- **Editor action protocol v1 — the IDE integration backend.** With `editor.enabled: true` in a
+  dedicated headless composition, the plugin serves `lsp.actions.list` / `lsp.actions.run` /
+  `lsp.events` over newline-delimited JSON-RPC 2.0 (wire-framing-compatible with the official
+  SDK/ACP transports), so any editor can consume the LSP capabilities directly — no agent round-trip.
+  - Four v1 actions: `diagnostics.get` (read-only), `completion.get` (read-only, zero-based LSP
+    positions), `quickfix.apply` (selects a server-verified code action by `title`/`index` and
+    applies its edits), and `format` (whole-file or range).
+  - `run` always answers one structured `{ requestId, action, status, result | error }` envelope;
+    failures carry the stable `LSP_ACTION_*` codes, extended with `LSP_ACTION_UNKNOWN`,
+    `LSP_ACTION_INVALID_ARGS`, `LSP_ACTION_APPROVAL_UNAVAILABLE`, and
+    `LSP_PROTOCOL_VERSION_UNSUPPORTED`.
+  - Streamed `lsp.event` notifications: `diagnostics.updated`, `action.status`, `file.changed`,
+    `sessions.changed`; `lsp.events {subscribe}` controls the stream.
+  - **Versioning & backward compatibility**: `lsp-actions/v1` is frozen; evolution is additive
+    only; breaking changes ship under a new protocol version. Documented in the bilingual spec
+    [`docs/editor-protocol.md`](docs/editor-protocol.md) / [`docs/editor-protocol.zh-CN.md`](docs/editor-protocol.zh-CN.md).
+- **Official permission presets and approval for editor writes.** `quickfix.apply` and `format`
+  resolve the addressed session's official sandbox policy (read-only sessions fail with
+  `LSP_ACTION_READ_ONLY` before any server round-trip), write through the `fs/write-intent`
+  waterfall with guarded writes, and resolve the `sandbox_permissions` + `justification` escalation
+  pair through the official `approveEscalation` ask (fail-closed with
+  `LSP_ACTION_APPROVAL_UNAVAILABLE` when no answerer can decide).
+- **Bounded LRU diagnostics cache** (`editor.diagnosticsCacheMaxFiles`, default 64):
+  freshness-stamped snapshots, least-recently-used eviction, invalidated by filesystem
+  observations and by the plugin's own writes; never persisted across restarts. Cached
+  first-error ranges power range-less `quickfix.apply` targeting.
+- **Schema configuration** for the backend: `editor.enabled` (default `false` — only headless
+  backends may claim stdio), `editor.requestTimeoutMs` (default 60000, enforced per run), and
+  `editor.diagnosticsCacheMaxFiles`. Misconfiguration fails at load.
+- **Reversible registration.** The transport, event listeners, and cache live entirely inside the
+  plugin's effect scope; stopping or updating the plugin tears the whole surface down.
+- **`examples/vscode/`**: a minimal UI-only VS Code extension (sidebar with DSH sessions +
+  diagnostics list + one-click quickfix + open-at-range + format) plus the headless backend
+  composition (`backend/cordis.yml` + `bin.mjs`). The extension implements zero LSP logic.
+- **Tests**: bounded-LRU coverage, editor-protocol service semantics (permission gating, escalation
+  fail-closed, timeouts, cache invalidation), and a full diagnostics → quickfix → format chain over
+  real JSON-RPC frames against the fixture LSP server.
+
+### Changed
+
+- **Prompt hygiene commitment**: the plugin injects no persona or prompt prose (model-facing
+  surface = the eight tool schemas); any future prompt segment must open with one short role
+  sentence and stay brief, aligned with the official Minimal persona style.
+- README (EN/zh-CN) now documents the IDE-backend architecture (editor protocol × official ACP
+  server × Python SDK), the versioning promise, the VS Code example, and the extended error-code
+  table; es/hi/pt READMEs point at the canonical protocol docs.
+
 ## 0.2.0 — 2026-08-15
 
 ### Added

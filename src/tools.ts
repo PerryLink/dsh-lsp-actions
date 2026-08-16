@@ -629,7 +629,7 @@ function projectCompletionItem(item: {
  * @param action - the tool name, named in the recovery advice.
  * @returns the error to throw.
  */
-function mapWriteFailure(error: unknown, action: string): unknown {
+export function mapWriteFailure(error: unknown, action: string): unknown {
   if (error instanceof FsError && (error.code === 'FS_STALE_VERSION' || error.code === 'FS_NOT_OBSERVED')) {
     return new LspActionError(
       `the file changed on disk after it was read, and the write policy refused to overwrite it — re-read the file, then either re-run ${action} or apply the changes manually with edit/write`,
@@ -641,7 +641,7 @@ function mapWriteFailure(error: unknown, action: string): unknown {
 }
 
 /** The one-based line span the applied edits touch (0 for an empty edit list). */
-function linesChangedByEdits(edits: readonly { range: LspRange }[]): number {
+export function linesChangedByEdits(edits: readonly { range: LspRange }[]): number {
   if (edits.length === 0) return 0
   let min = Number.POSITIVE_INFINITY
   let max = Number.NEGATIVE_INFINITY

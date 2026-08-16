@@ -14,6 +14,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { LspActionClient } from './client.ts'
 import { registerCodeActionTool, registerInlayHintsTool, registerSignatureTool, registerSymbolsTool } from './extra-tools.ts'
+import { startEditorProtocol } from './editor/server.ts'
 import { createActionRunner } from './runner.ts'
 import { FormatSandboxController } from './sandbox.ts'
 import type { SeamService } from './seam.ts'
@@ -46,6 +47,27 @@ export type {
   LspTextEdit,
 } from './vocabulary.ts'
 export { applyEdits } from './edits.ts'
+export { LruDiagnosticsCache } from './editor/cache.ts'
+export { EditorActionService } from './editor/service.ts'
+export { EditorJsonRpcServer, EDITOR_METHOD_EVENTS, EDITOR_METHOD_LIST, EDITOR_METHOD_RUN } from './editor/server.ts'
+export type { EditorServerOptions } from './editor/server.ts'
+export type {
+  EditorActionDescriptor,
+  EditorActionId,
+  EditorActionResult,
+  EditorCompletionParams,
+  EditorDiagnostic,
+  EditorDiagnosticsParams,
+  EditorErrorInfo,
+  EditorEvent,
+  EditorFormatParams,
+  EditorListResult,
+  EditorQuickfixParams,
+  EditorRunRequest,
+  EditorRunResult,
+  EditorSessionInfo,
+} from './editor/types.ts'
+export { EDITOR_PROTOCOL } from './editor/types.ts'
 export { encodeMessage, MessageDecoder } from './framing.ts'
 export {
   formatAppliedEdits,
@@ -117,7 +139,17 @@ export const Config = ConfigSchema
  * @param config - the resolved plugin configuration.
  */
 export async function apply(ctx: Context, config: ConfigType): Promise<void> {
-  const resolved = config as ResolvedConfig
+  // The schema normally fills every editor default; tolerate a raw config handed straight to
+  // apply() (tests, programmatic mounting) by defaulting the whole editor group here.
+  const resolved = {
+    ...(config as ResolvedConfig),
+    editor: {
+      enabled: false,
+      requestTimeoutMs: 60_000,
+      diagnosticsCacheMaxFiles: 64,
+      ...(config.editor as Partial<ResolvedConfig['editor']> | undefined),
+    },
+  }
   assertPositiveInteger('maxDiagnostics', resolved.maxDiagnostics)
   assertPositiveInteger('maxCompletionItems', resolved.maxCompletionItems)
   assertPositiveInteger('maxCodeActions', resolved.maxCodeActions)
@@ -127,6 +159,8 @@ export async function apply(ctx: Context, config: ConfigType): Promise<void> {
   assertPositiveInteger('maxResultChars', resolved.maxResultChars)
   assertPositiveInteger('maxDocumentBytes', resolved.maxDocumentBytes)
   assertTimer('timeoutMs', resolved.timeoutMs)
+  assertPositiveInteger('editor.diagnosticsCacheMaxFiles', resolved.editor.diagnosticsCacheMaxFiles)
+  assertTimer('editor.requestTimeoutMs', resolved.editor.requestTimeoutMs)
 
   // Resolve every executable BEFORE registering anything: a bad later command must not publish an
   // earlier tool, matching the official lsp-stdio load contract.
@@ -148,7 +182,15 @@ export async function apply(ctx: Context, config: ConfigType): Promise<void> {
     registerSignatureTool(ctx, runner, resolved)
     registerInlayHintsTool(ctx, runner, resolved)
     registerRenameTool(ctx, runner, sandbox, resolved)
+    // The IDE integration backend: `lsp.actions.list` / `lsp.actions.run` / `lsp.events` over
+    // JSON-RPC stdio. Only composed when the deployment opts in (editor.enabled) — a Web or CLI
+    // composition must never claim stdout. Every registration here is effect-scoped, so stopping
+    // or updating the plugin tears down the transport, the listeners, and the cache.
+    const editor = resolved.editor.enabled
+      ? startEditorProtocol(ctx, runner, sandbox, resolved)
+      : undefined
     return async () => {
+      await editor?.dispose()
       await client.disposeAll()
     }
   }, 'lsp-actions.registerTools')

@@ -164,6 +164,11 @@ export type LspActionErrorCode =
   | 'LSP_ACTION_READ_ONLY'
   | 'LSP_ACTION_WORKSPACE_REQUIRED'
   | 'LSP_ACTION_NO_SYMBOL'
+  /** The editor-protocol additions (additive; v1 tool codes are unchanged). */
+  | 'LSP_ACTION_UNKNOWN'
+  | 'LSP_ACTION_INVALID_ARGS'
+  | 'LSP_ACTION_APPROVAL_UNAVAILABLE'
+  | 'LSP_PROTOCOL_VERSION_UNSUPPORTED'
 
 /**
  * Structured LSP action failure. Extends {@link HarnessError} so the tool registry surfaces

@@ -20,6 +20,8 @@ export interface FakeServices {
   lsp?: unknown
   sandboxPolicy?: unknown
   approval?: unknown
+  sessions?: unknown
+  agents?: unknown
 }
 
 /** Configuration for the fake filesystem. */
@@ -69,6 +71,7 @@ export async function createFakeContext(opts: {
   const observed: ObservedRecord[] = []
   const writeIntents: Array<{ target: FsTarget; actor: object | undefined }> = []
   const disposers: Array<() => Promise<unknown>> = []
+  const handlers = new Map<string, Set<(...args: unknown[]) => void>>()
   const ctx: Record<string, unknown> = {
     tools: {
       register(tool: ToolDefinition): () => void {
@@ -93,9 +96,19 @@ export async function createFakeContext(opts: {
       if (name === 'fs/observed') {
         observed.push({ target: args[0] as FsTarget, observation: args[1] as FsObservation, actor: args[2] as object | undefined })
       }
+      // Mirror the real event bus: subscribers observe the same emissions the recorder sees.
+      for (const handler of handlers.get(name) ?? []) handler(...args)
     },
     get: (name: string): unknown => opts.services?.[name as keyof FakeServices],
-    on: (): (() => void) => () => {},
+    on: (name: string, handler: (...args: unknown[]) => void): (() => void) => {
+      let set = handlers.get(name)
+      if (set === undefined) {
+        set = new Set()
+        handlers.set(name, set)
+      }
+      set.add(handler)
+      return () => { set.delete(handler) }
+    },
     effect: (run: () => unknown): unknown => {
       const disposer = run()
       if (typeof disposer === 'function') disposers.push(disposer as () => Promise<unknown>)

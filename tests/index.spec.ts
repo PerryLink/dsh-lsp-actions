@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { PassThrough } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { apply, Config } from '../src/index.ts'
 import type { LspServerEntry } from '../src/index.ts'
@@ -51,6 +52,7 @@ afterEach(async () => {
 
 const baseConfig = {
   servers: {},
+  editor: { enabled: false, requestTimeoutMs: 60_000, diagnosticsCacheMaxFiles: 64 },
   maxDiagnostics: 200,
   maxCompletionItems: 20,
   maxCodeActions: 50,
@@ -69,6 +71,7 @@ describe('lsp-actions apply', () => {
   it('fills every config default through the schemastery schema', () => {
     expect(Config({})).toMatchObject({
       servers: {},
+      editor: { enabled: false, requestTimeoutMs: 60_000, diagnosticsCacheMaxFiles: 64 },
       maxDiagnostics: 200,
       maxCompletionItems: 20,
       maxCodeActions: 50,
@@ -128,6 +131,8 @@ describe('lsp-actions apply', () => {
     ['maxResultChars', { maxResultChars: -1 }, /maxResultChars must be a positive integer/],
     ['maxDocumentBytes', { maxDocumentBytes: 0 }, /maxDocumentBytes must be a positive integer/],
     ['timeoutMs', { timeoutMs: 0 }, /timeoutMs must be a positive integer/],
+    ['editor.diagnosticsCacheMaxFiles', { editor: { enabled: false, requestTimeoutMs: 60_000, diagnosticsCacheMaxFiles: 0 } }, /editor\.diagnosticsCacheMaxFiles must be a positive integer/],
+    ['editor.requestTimeoutMs', { editor: { enabled: false, requestTimeoutMs: 0, diagnosticsCacheMaxFiles: 64 } }, /editor\.requestTimeoutMs must be a positive integer/],
   ])('rejects an invalid %s at load', async (_name, patch, pattern) => {
     await expect(apply(fake.ctx as never, { ...baseConfig, ...patch })).rejects.toThrow(pattern)
   })
@@ -164,7 +169,36 @@ describe('lsp-actions apply', () => {
     expect(value.diagnostics[0]?.message).toBe('fixture error')
     await Promise.all(fake.disposers.map(disposer => disposer()))
   })
+
+  it('serves the editor protocol over the injected transport when editor.enabled is true, reversibly', async () => {
+    const input = new PassThrough()
+    const output = new PassThrough()
+    const received: string[] = []
+    output.on('data', (chunk: Buffer) => { received.push(chunk.toString('utf8')) })
+    await apply(fake.ctx as never, {
+      ...baseConfig,
+      editor: { enabled: true, requestTimeoutMs: 60_000, diagnosticsCacheMaxFiles: 4, input, output },
+    } as never)
+    expect(fake.tools.map(tool => tool.name).sort()).toEqual(ALL_TOOLS)
+    input.write(`${JSON.stringify({ jsonrpc: '2.0', id: 't1', method: 'lsp.actions.list', params: {} })}\n`)
+    await waitFor(() => received.some(line => line.includes('"protocol":"lsp-actions/v1"')))
+    // Disposal reverses the surface: the transport detaches and no further responses arrive.
+    await Promise.all(fake.disposers.map(disposer => disposer()))
+    received.length = 0
+    input.write(`${JSON.stringify({ jsonrpc: '2.0', id: 't2', method: 'lsp.actions.list', params: {} })}\n`)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(received).toEqual([])
+  })
 })
+
+/** Poll until the predicate holds, failing after the budget. */
+async function waitFor(predicate: () => boolean, budgetMs = 2_000): Promise<void> {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > budgetMs) throw new Error('condition did not hold in time')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+}
 
 /** Rebuild the fake context with extra services. */
 async function recreate(previous: FakeContext, services: NonNullable<Parameters<typeof createFakeContext>[0]['services']>): Promise<FakeContext> {

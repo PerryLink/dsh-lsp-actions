@@ -1,0 +1,96 @@
+{
+  "name": "dsh-lsp-actions-vscode",
+  "displayName": "DSH LSP Actions (IDE integration example)",
+  "description": "Minimal VS Code extension consuming the dsh-lsp-actions editor action protocol over ACP-style JSON-RPC. UI only — every LSP capability is served by the plugin backend.",
+  "version": "0.3.0",
+  "publisher": "dsh",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "dshLspActions.connect",
+        "title": "DSH: Connect to the editor backend"
+      },
+      {
+        "command": "dshLspActions.disconnect",
+        "title": "DSH: Disconnect from the editor backend"
+      },
+      {
+        "command": "dshLspActions.refreshDiagnostics",
+        "title": "DSH: Refresh diagnostics for the active file",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dshLspActions.applyQuickfix",
+        "title": "DSH: Apply this quickfix"
+      },
+      {
+        "command": "dshLspActions.openDiagnostic",
+        "title": "DSH: Open the file at this diagnostic"
+      },
+      {
+        "command": "dshLspActions.formatDocument",
+        "title": "DSH: Format the active document (through the backend)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dsh-lsp-actions",
+          "title": "DSH LSP Actions",
+          "icon": "$(server-process)"
+        }
+      ]
+    },
+    "views": {
+      "dsh-lsp-actions": [
+        {
+          "id": "dshLspActions.sessions",
+          "name": "DSH Sessions"
+        },
+        {
+          "id": "dshLspActions.diagnostics",
+          "name": "LSP Diagnostics"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "dshLspActions.refreshDiagnostics",
+          "when": "view == dshLspActions.diagnostics",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DSH LSP Actions",
+      "properties": {
+        "dshLspActions.backend.node": {
+          "type": "string",
+          "default": "node",
+          "description": "The Node.js executable used to launch the editor backend."
+        },
+        "dshLspActions.backend.bin": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the backend bin.mjs (examples/vscode/backend/bin.mjs). Empty falls back to the bundled example path resolution."
+        },
+        "dshLspActions.backend.config": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the backend cordis.yml. Empty falls back to the bin's default lookup."
+        }
+      }
+    }
+  }
+}

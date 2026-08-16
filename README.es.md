@@ -20,6 +20,8 @@ Diagnósticos, formateo, completado de código, correcciones rápidas, símbolos
 
 ---
 
+> **Nuevo (v0.3.0):** backend de integración IDE — el protocolo de acciones para editores `lsp.actions.list` / `lsp.actions.run` / `lsp.events` (v1) y el ejemplo mínimo de VS Code. La especificación canónica del protocolo está documentada en [README.md](README.md) y [README.zh-CN.md](README.zh-CN.md) (arquitectura, versionado y compatibilidad hacia atrás); la especificación completa del wire: [docs/editor-protocol.md](docs/editor-protocol.md) / [docs/editor-protocol.zh-CN.md](docs/editor-protocol.zh-CN.md).
+
 ## Qué aporta este plugin a tu agente
 
 El seam oficial `ctx.lsp` de DeepSeek Harness cubre la **navegación** (ir a definición, referencias, implementación, hover). `dsh-lsp-actions` completa la **superficie de acción**: el bucle de retroalimentación que un agente necesita mientras escribe y corrige código:

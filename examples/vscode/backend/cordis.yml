@@ -1,0 +1,53 @@
+# The DSH IDE integration backend for dsh-lsp-actions.
+#
+# A headless runtime whose stdout carries ONLY the editor action protocol
+# (`lsp.actions.list` / `lsp.actions.run` / `lsp.events`, newline-delimited
+# JSON-RPC 2.0). Do not add a stdout logger or any other stdout writer to this
+# composition; diagnostics belong on stderr.
+#
+# This is the minimal spine the plugin needs: the tool registry, the system
+# prompt service it requires, a filesystem backend, the fs observation policy
+# (the `fs/write-intent` waterfall the write actions ride), and a local
+# subprocess backend for language servers. No LLM adapter, no agent loop, no
+# terminal UI — editors drive the LSP capabilities directly, with no model
+# round-trip.
+
+# The system prompt service the official tool registry injects.
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+
+# The official tool registry (provides ctx.tools; lsp-actions injects it).
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+# The local filesystem backend (provides ctx.fs).
+- id: fs
+  name: '@deepseek-ai/dsh-fs-local'
+
+# Read-before-edit observation: supplies the `fs/write-intent` waterfall the
+# plugin's write actions (quickfix.apply / format) go through.
+- id: fs-observation-policy
+  name: '@deepseek-ai/dsh-fs-observation-policy'
+
+# Local child processes (provides ctx.subprocess) for language servers.
+- id: subprocess
+  name: '@deepseek-ai/dsh-subprocess-local'
+
+# The plugin: the eight model tools (unused here but always registered) plus
+# the editor action protocol served over stdio. Add one server entry per
+# language you want diagnostics/quickfixes/formatting for.
+- id: lsp-actions
+  name: dsh-lsp-actions
+  inject: [tools, fs, subprocess]
+  config:
+    editor:
+      enabled: true
+      requestTimeoutMs: 60000
+      diagnosticsCacheMaxFiles: 64
+    servers:
+      ts:
+        command: typescript-language-server
+        args: [--stdio]
+        extensionToLanguage:
+          ".ts": typescript
+        formattingOptions: { tabSize: 2, insertSpaces: true }

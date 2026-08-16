@@ -1,0 +1,22 @@
+{
+  "name": "dsh-lsp-editor-backend-example",
+  "version": "0.3.0",
+  "private": true,
+  "description": "The DSH IDE integration backend for dsh-lsp-actions: a headless runtime whose stdout carries only the editor action protocol (newline-delimited JSON-RPC).",
+  "type": "module",
+  "bin": {
+    "dsh-lsp-editor-backend": "./bin.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-app-boot": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-fs-local": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-fs-observation-policy": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-subprocess-local": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.5",
+    "dsh-lsp-actions": "^0.3.0"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  }
+}

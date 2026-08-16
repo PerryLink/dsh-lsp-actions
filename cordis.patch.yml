@@ -1,12 +1,18 @@
 # LSP action surface: diagnostics, formatting, completion, code actions, symbols, signature
 # help, inlay hints, and rename over language servers.
 # Default config activates no servers (empty table); add one entry per language server.
+# editor.enabled: false keeps the IDE integration backend off (Web/CLI profiles own stdio);
+# enable it only in a dedicated headless backend composition (see examples/vscode/backend).
 - insert:
     - id: lsp-actions
       name: dsh-lsp-actions
       inject: [tools, fs, subprocess]
       config:
         servers: {}
+        editor:
+          enabled: false
+          requestTimeoutMs: 60000
+          diagnosticsCacheMaxFiles: 64
         maxDiagnostics: 200
         maxCompletionItems: 20
         maxCodeActions: 50
