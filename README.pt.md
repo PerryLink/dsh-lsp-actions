@@ -2,98 +2,163 @@
 
 # 🛰️ dsh-lsp-actions
 
-**A superfície de ação LSP para o DeepSeek Harness — servidores de linguagem reais, feedback real.**
+**A superfície de ação LSP para o DeepSeek Harness — servidores de linguagem reais, feedback real e o backend de integração IDE para editores.**
 
-Diagnósticos, formatação, autocompletar de código, correções rápidas, símbolos, ajuda de assinatura e dicas embutidas para o loop do editor do seu agente, alimentados pelos mesmos servidores de linguagem que o seu IDE usa.
+*Diagnósticos, formatação, autocompletar, ações de código, símbolos, ajuda de assinatura, dicas embutidas e renomeação para o loop do editor do seu agente — mais o protocolo estável de ações para editores (`lsp.actions.*`) que permite a qualquer editor consumi-los diretamente.*
 
-[![Topic: dsh](https://img.shields.io/badge/Topic-dsh-4D6BFE?style=for-the-badge)](https://github.com/topics/dsh)
-[![Topic: dsh-plugin](https://img.shields.io/badge/Topic-dsh--plugin-8257D0?style=for-the-badge)](https://github.com/topics/dsh-plugin)
-[![CI](https://github.com/PerryLink/dsh-lsp-actions/actions/workflows/ci.yml/badge.svg)](https://github.com/PerryLink/dsh-lsp-actions/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/dsh-lsp-actions?style=flat-square)](https://www.npmjs.com/package/dsh-lsp-actions)
-[![npm downloads](https://img.shields.io/npm/dw/dsh-lsp-actions?style=flat-square)](https://www.npmjs.com/package/dsh-lsp-actions)
-[![License](https://img.shields.io/badge/License-Apache%202.0-D22128?style=flat-square)](LICENSE)
-[![Node](https://img.shields.io/badge/Node-%5E22.19%20%7C%7C%20%3E%3D24-43853D?style=flat-square)](package.json)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![DSH plugin](https://img.shields.io/badge/dsh-plugin-✅-green)](https://github.com/topics/dsh-plugin)
+[![Node](https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-brightgreen.svg)](#)
+[![CI](https://img.shields.io/github/actions/workflow/status/PerryLink/dsh-lsp-actions/ci.yml?branch=main&label=CI)](https://github.com/PerryLink/dsh-lsp-actions/actions)
+[![Version](https://img.shields.io/github/v/tag/PerryLink/dsh-lsp-actions?label=version)](https://github.com/PerryLink/dsh-lsp-actions/releases)
+[![npm version](https://img.shields.io/npm/v/dsh-lsp-actions)](https://www.npmjs.com/package/dsh-lsp-actions)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-lsp-actions)](https://www.npmjs.com/package/dsh-lsp-actions)
 
-[English](README.md) · [简体中文](README.zh-CN.md) · [Español](README.es.md) · [हिन्दी](README.hi.md) · [Português](README.pt.md)
+[English](README.md) · [简体中文](README.zh.md) · [Español](README.es.md) · [Português](README.pt.md) · [हिन्दी](README.hi.md)
 
 </div>
 
 ---
 
-> **Novo (v0.3.0):** backend de integração IDE — o protocolo de ações para editores `lsp.actions.list` / `lsp.actions.run` / `lsp.events` (v1) e o exemplo mínimo de VS Code. A especificação canônica do protocolo está em [README.md](README.md) e [README.zh-CN.md](README.zh-CN.md) (arquitetura, versionamento e compatibilidade retroativa); a especificação completa do wire: [docs/editor-protocol.md](docs/editor-protocol.md) / [docs/editor-protocol.zh-CN.md](docs/editor-protocol.zh-CN.md).
+## Compatibility
 
-## O que este plugin dá ao seu agente
+| Surface | Status |
+|---|---|
+| Harness | DeepSeek Harness `0.1.0-rc.6` (compatibilidade declarada para `>=0.1.0-rc.6`) |
+| Node | `^22.19.0 \|\| >=24.0.0` |
+| Platforms | Todas (host puro; subprocessos + sistema de arquivos, sem rede) |
+| Model | Qualquer (as ferramentas são independentes do modelo; o plugin nunca chama um modelo) |
 
-O seam oficial `ctx.lsp` do DeepSeek Harness cobre **navegação** (ir para definição, referências, implementação, hover). O `dsh-lsp-actions` completa a **superfície de ação** — o loop de feedback que um agente precisa enquanto escreve e corrige código:
+## What you get
 
-| Ferramenta | O que faz | Grava? |
-| --- | --- | --- |
-| `lsp_diagnostics <file>` | Erros, avisos e dicas do compilador/analisador com severidade, intervalo, mensagem e servidor de origem | ❌ somente leitura |
-| `lsp_format <file> [range?]` | Formata um arquivo ou seleção pelo servidor de linguagem e aplica o resultado, devolvendo o diff | ✅ via `fs/write-intent` + política de sandbox |
-| `lsp_completion <file> <line> <character>` | Sugestões de autocompletar em uma posição do cursor, incluindo o texto de inserção real | ❌ somente leitura |
-| `lsp_code_action <file> [range?] [only?]` | Correções/refatorações verificadas pelo servidor (com suas edições) para um intervalo ou o primeiro diagnóstico | ❌ somente referência |
-| `lsp_symbols <query?> <file_path?>` | Busca de símbolos por nome em todo o workspace, ou o esboço de símbolos de um arquivo | ❌ somente leitura |
-| `lsp_signature <file> <line> <character>` | Ajuda de assinatura (parâmetros e documentação) dentro de uma chamada | ❌ somente leitura |
-| `lsp_inlay_hints <file> [range?]` | Anotações de tipo e dicas de nomes de parâmetros do servidor | ❌ somente leitura |
-| `lsp_rename <file> <line> <character> <new_name>` | Renomeação de símbolo verificada pelo servidor, aplicada em todo o workspace com diffs por arquivo | ✅ via `fs/write-intent` + política de sandbox |
+O `dsh-lsp-actions` é montado como uma única linha de host (`id: lsp-actions`, `name: dsh-lsp-actions`, `inject: [tools, fs, subprocess]`). O seam oficial `ctx.lsp` do DeepSeek Harness cobre a **navegação** (ir para definição, referências, implementação, hover); este plugin completa a **superfície de ação** — o loop de feedback que um agente precisa enquanto escreve e corrige código:
 
-> ✨ Uma execução real do `typescript-language-server` faz parte da suíte de testes: diagnósticos, formatação, autocompletar, busca de símbolos e renomeação são verificados de ponta a ponta contra um servidor vivo, não apenas com mocks. A suíte é autocontida (tsls é uma devDependency) e roda no CI com Node 22/24 em Linux, Windows e macOS.
+1. **Oito ferramentas `lsp_*`** — diagnósticos, formatação, autocompletar, ações de código, símbolos, ajuda de assinatura, dicas embutidas e renomeação, todas servidas pelos mesmos servidores de linguagem que o seu IDE usa.
+2. **Protocolo de ações para editores v1** — uma superfície JSON-RPC estável (`lsp.actions.list` / `lsp.actions.run` / `lsp.events`) que permite a qualquer editor (VS Code primeiro) consumir essas capacidades diretamente.
+3. **Verificação com servidor real** — uma execução real do `typescript-language-server` faz parte da suíte de testes (autocontida, CI em Node 22/24 no Linux, Windows e macOS), não apenas mocks.
 
-## Início rápido
+## Quick start
 
 ```sh
-dsh plugin --profile <name> add <caminho-ou-tarball-do-dsh-lsp-actions>
+# 1. install the bundle into your profile
+dsh plugin --profile web add "github:PerryLink/dsh-lsp-actions#main"
+
+# or from npm (published releases)
+dsh plugin --profile web add dsh-lsp-actions
+
+# 2. restart and verify the row
+dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 ```
 
-Configure uma entrada por servidor de linguagem (a forma espelha a configuração oficial do `lsp-stdio`):
+## Install & uninstall
 
-```yaml
-# no cordis.patch.yml do seu perfil (ou na linha do bundle)
-- insert:
-    - id: lsp-actions
-      name: dsh-lsp-actions
-      inject: [tools, fs, subprocess]
-      config:
-        servers:
-          ts:
-            command: typescript-language-server
-            args: [--stdio]
-            extensionToLanguage:
-              ".ts": typescript
-            formattingOptions: { tabSize: 2, insertSpaces: true }
-          py:
-            command: pyright-langserver
-            args: [--stdio]
-            extensionToLanguage:
-              ".py": python
-        maxDiagnostics: 200
-        maxCompletionItems: 20
-        maxCodeActions: 50
-        maxSymbols: 100
-        maxSignatures: 10
-        maxInlayHints: 200
-        maxResultChars: 16000
-        timeoutMs: 60000
-```
+- **git channel** (`main` mais recente): `dsh plugin --profile web add "github:PerryLink/dsh-lsp-actions#main"` — o script `prepare` compila (`tsc --noEmitOnError`).
+- **npm channel** (versões publicadas): `dsh plugin --profile web add dsh-lsp-actions`.
+- **tarball channel**: execute `pnpm pack` neste repo e depois `dsh plugin --profile web add ./dsh-lsp-actions-<version>.tgz`.
+- **uninstall**: `dsh plugin --profile web remove dsh-lsp-actions` (ou remova a linha do patch do perfil).
 
-As oito ferramentas são sempre registradas. Com uma **tabela `servers` vazia e nenhum seam `ctx.lsp` montado, as chamadas falham em alto e bom som** com `LSP_ACTION_UNAVAILABLE` dizendo o que configurar — o plugin nunca inicia servidores que você não configurou. Um seam `ctx.lsp` montado **depois** deste plugin é detectado na próxima chamada (a detecção do seam é por chamada, então a ordem de carregamento não importa).
+## Configuration
 
-## Por que é seguro por construção
+Todos os ajustes são campos Schemastery `Config` (alteráveis pelo cordis.yml). Uma sobrescrita direcionada por id substitui a linha inteira — repita cada chave de que precisar. O `cordis.patch.yml` documenta cada chave em linha.
 
-- **Formatação e renomeação são mutações reais, tratadas como `write`/`edit`.** Cada byte passa pelo waterfall `fs/write-intent` (observação → escrita protegida → observação) e pela política de sandbox de cada chamada. O `lsp_rename` faz o pré-voo de cada arquivo editado (contenção no workspace, verificação de sobreposição, leitura limitada por bytes) *antes* da primeira escrita, para que uma resposta ruim do servidor não deixe uma renomeação pela metade.
-- **Todo o resto é somente leitura por design.** Ações de código, autocompletar, símbolos, assinaturas e dicas são reportados como material de referência; aplicá-los é decisão própria do modelo com write/edit. Formas de comando são reportadas e **nunca executadas**.
-- **Sessões somente leitura falham em alto e bom som, rápido e estruturado** — `LSP_ACTION_READ_ONLY` com o marcador compartilhado `[sandbox: …]`, lançado *antes* de qualquer ida e volta com o servidor.
-- **A escalada acompanha as ferramentas oficiais.** Sob um sistema de arquivos restritivo, o `lsp_format` e o `lsp_rename` anunciam a mesma nova tentativa única `sandbox_permissions` / `justification` que `write`/`edit`, resolvida por meio de `ctx.approval`.
-- **Conflitos nunca sobrescrevem.** Se o arquivo mudou em disco depois de lido, a escrita protegida falha com `LSP_ACTION_CONFLICT` e o modelo é instruído a escolher: reler e repetir, ou aplicar o diff manualmente.
-- **Os timeouts são da plataforma.** Cada ferramenta declara `timeoutMs`; a política oficial `dsh-tool-call-timeout-policy` o aplica, e cada await respeita `exec.signal`.
-- **Nada é cacheado.** Os resultados vivem apenas no log da sessão; não há persistência entre sessões.
+| Key | Default | Meaning |
+|---|---|---|
+| `servers` | `{}` | Servidores de linguagem nomeados; uma tabela vazia não ativa nenhum servidor |
+| `editor.enabled` | `false` | Serve o protocolo de ações para editores por JSON-RPC stdio (somente backend headless) |
+| `editor.requestTimeoutMs` | `60000` | Orçamento de timeout por execução (ms) do protocolo de editor |
+| `editor.diagnosticsCacheMaxFiles` | `64` | Tamanho da cache LRU de diagnósticos (em arquivos) |
+| `maxDiagnostics` | `200` | Teto de diagnósticos por resultado |
+| `maxCompletionItems` | `20` | Teto de itens de autocompletar por resultado |
+| `maxCodeActions` | `50` | Teto de ações de código por resultado |
+| `maxSymbols` | `100` | Teto de resultados de símbolos |
+| `maxSignatures` | `10` | Teto de ajuda de assinatura |
+| `maxInlayHints` | `200` | Teto de dicas embutidas |
+| `maxResultChars` | `16000` | Teto do resultado renderizado (caracteres) |
+| `maxDocumentBytes` | `4000000` | Teto de leitura de documento (bytes) |
+| `timeoutMs` | `60000` | Timeout por chamada, aplicado pela política oficial de timeout |
+
+Cada entrada de `servers` é um `LspServerEntry`: `command` (executável resolvido no PATH no carregamento) e `extensionToLanguage` (`".ts"` → `typescript`) são obrigatórios; os opcionais `fileGlobs`, `args`, `env`, `initializationOptions`, `configuration`, `formattingOptions`, `maxMessageBytes`, `maxStderrBytes`, `killGraceMs`, `shutdownTimeoutMs`, `diagnosticsSettleMs`, `diagnosticsDebounceMs` e `idleTimeoutMs` (`0` = manter vivo o processo do servidor) ajustam o cliente stdio integrado.
+
+## Tools & surfaces
+
+| Surface | Kind | Notes |
+|---|---|---|
+| `lsp_diagnostics` | tool | `<file>` — erros, avisos e dicas do compilador/analisador com severidade, intervalo, mensagem e servidor de origem (somente leitura) |
+| `lsp_format` | tool | `<file> [range?]` — formata um arquivo/seleção pelo servidor de linguagem e o aplica, devolvendo o diff (grava via `fs/write-intent`) |
+| `lsp_completion` | tool | `<file> <line> <character>` — sugestões de autocompletar em uma posição do cursor, incluindo o texto de inserção (somente leitura) |
+| `lsp_code_action` | tool | `<file> [range?] [only?]` — correções/refatorações verificadas pelo servidor com suas edições, para um intervalo ou o primeiro diagnóstico (somente referência) |
+| `lsp_symbols` | tool | `<query?> <file_path?>` — busca de símbolos por nome em todo o workspace, ou o esboço de um arquivo (somente leitura) |
+| `lsp_signature` | tool | `<file> <line> <character>` — ajuda de assinatura (parâmetros e documentação) dentro de uma chamada (somente leitura) |
+| `lsp_inlay_hints` | tool | `<file> [range?]` — anotações de tipo e dicas de nomes de parâmetros do servidor (somente leitura) |
+| `lsp_rename` | tool | `<file> <line> <character> <new_name>` — renomeação verificada pelo servidor, aplicada em todo o workspace com diffs por arquivo (grava via `fs/write-intent`) |
+| `lsp.actions.*` | protocol | Protocolo de ações para editores v1: `lsp.actions.list` / `lsp.actions.run` / `lsp.events` por JSON-RPC |
+| `examples/vscode/` | extension | Extensão VS Code somente-UI mais a composição de backend headless à qual se conecta |
+
+## Editor action protocol v1
+
+Quando `editor.enabled: true` é definido em uma composição headless dedicada, o `dsh-lsp-actions` serve um protocolo de editor estável por JSON-RPC 2.0 delimitado por quebras de linha (o mesmo enquadramento de wire dos transportes oficiais SDK/ACP):
+
+| Method | What it does |
+|---|---|
+| `lsp.actions.list` | Devolve a versão de protocolo `lsp-actions/v1`, o catálogo de ações (`diagnostics.get`, `completion.get`, `quickfix.apply`, `format` — cada uma marcada `writes`) e as sessões DSH endereçáveis |
+| `lsp.actions.run` | Executa uma ação com um envelope estruturado `{ requestId, action, status, result \| error }`; os erros carregam os códigos estáveis `LSP_ACTION_*` |
+| `lsp.events` | Assina as notificações `lsp.event` transmitidas: `diagnostics.updated`, `action.status`, `file.changed`, `sessions.changed` |
+
+Todas as ações de escrita (`quickfix.apply`, `format`) passam pelos **presets de permissão oficiais e pela aprovação**: uma sessão `read-only` é recusada com `LSP_ACTION_READ_ONLY` antes de qualquer ida e volta com o servidor, as edições viajam pelo waterfall `fs/write-intent` e o par de escalada `sandbox_permissions` + `justification` se resolve pelo `approveEscalation` oficial (fail-closed quando ninguém pode decidir). Especificação de wire completa, bilíngue: [`docs/editor-protocol.md`](docs/editor-protocol.md) · [`docs/editor-protocol.zh-CN.md`](docs/editor-protocol.zh-CN.md).
+
+**Versionamento e a promessa de compatibilidade retroativa**
+
+- O protocolo é versionado — `lsp.actions.list` devolve `protocol: "lsp-actions/v1"`, `version: 1`. **O v1 está congelado:** nomes de campos, ids de ação, tipos de evento e códigos de erro permanecem estáveis para sempre.
+- A evolução é **apenas aditiva**: novas ações, campos e tipos de evento chegam sem subir a versão; a semântica existente nunca muda no lugar; uma mudança que quebra compatibilidade é publicada sob uma nova versão de `protocol`, que os servidores podem servir lado a lado.
+- Os clientes devem ignorar campos, tipos de evento e ações desconhecidos, e rotear pelo `code` de erro estável, nunca pelo texto da mensagem.
+
+**Códigos de erro**
+
+Cada falha carrega um `code` estável; modelos e chamadores roteiam pelo código, nunca pelo texto da mensagem.
+
+| Code | Meaning |
+|---|---|
+| `LSP_ACTION_UNAVAILABLE` | Nenhuma entrada de servidor nem provider do seam trata este arquivo |
+| `LSP_ACTION_UNSUPPORTED` | O servidor (ou o provider do seam) não anuncia a operação |
+| `LSP_ACTION_SERVER_FAILED` | O servidor falhou (com o final do seu stderr); falhas de inicialização tentam de novo uma vez |
+| `LSP_ACTION_MALFORMED_RESPONSE` | O servidor enviou uma carga estruturalmente inválida |
+| `LSP_ACTION_CONFLICT` | O arquivo mudou desde que foi lido, ou as edições se sobrepõem / saem dos limites / saem do workspace |
+| `LSP_ACTION_READ_ONLY` | O modo sandbox da sessão proíbe a escrita da formatação/renomeação |
+| `LSP_ACTION_WORKSPACE_REQUIRED` | A sessão chamadora não tem um cwd de workspace para enraizar o servidor |
+| `LSP_ACTION_NO_SYMBOL` | O servidor não encontrou um símbolo renomeável na posição do cursor |
+| `LSP_ACTION_UNKNOWN` | Protocolo de editor: id de ação desconhecido, ou nenhuma ação de código coincidiu com `title`/`index` |
+| `LSP_ACTION_INVALID_ARGS` | Protocolo de editor: parâmetros de ação mal formados |
+| `LSP_ACTION_APPROVAL_UNAVAILABLE` | Protocolo de editor: a rota de aprovação não pôde conceder um modo sandbox mais amplo (fail-closed) |
+| `LSP_PROTOCOL_VERSION_UNSUPPORTED` | Protocolo de editor: a versão de protocolo declarada não é suportada |
+
+## VS Code extension
+
+[`examples/vscode/`](examples/vscode/) inclui uma extensão **somente-UI** (barra lateral com as sessões DSH, a lista de diagnósticos, aplicar quickfix com um clique, abrir no intervalo e formatar) mais a composição de backend headless (`backend/cordis.yml`) à qual se conecta por JSON-RPC estilo ACP. A extensão implementa zero lógica LSP — cada capacidade e cada byte escrito pertencem ao plugin. Os passos de instalação, ajustes e o script de gravação do gif de demonstração estão em [`examples/vscode/README.md`](examples/vscode/README.md).
+
+![Editor demo](docs/editor-demo.gif)
+
+## Permissions & data
+
+- **Permissões**: a formatação e a renomeação viajam pelos presets de permissão oficiais e pela aprovação — o waterfall `fs/write-intent` e o par de escalada `sandbox_permissions` / `justification` resolvido por `ctx.approval`. O plugin declara `fs:read`, `fs:write`, `subprocess:spawn` e `network:none` em seu manifesto de workshop.
+- **Dados**: nada é armazenado em disco; os resultados das ferramentas vivem apenas no log da sessão (sem persistência entre sessões). O protocolo de editor mantém uma única cache LRU de diagnósticos em memória, limitada, com selo de frescor e nunca persistida entre reinícios.
+- **Sem rede**: o plugin não faz requisições de rede; ele fala com os servidores de linguagem por stdio de subprocessos locais.
+
+## Security boundaries
+
+- **Somente leitura por padrão.** Seis das oito ferramentas são apenas de referência; somente `lsp_format` e `lsp_rename` mutam, e o fazem como mutações reais de `write`/`edit`.
+- **Seams oficiais, não reimplementados.** Cada byte passa pelo waterfall `fs/write-intent` (observação → escrita protegida → observação) e pela política sandbox de cada chamada; a escalada acompanha as ferramentas oficiais `write`/`edit`.
+- **Falha em alto e bom som, rápido e estruturado.** `servers` vazio + sem seam `ctx.lsp` → `LSP_ACTION_UNAVAILABLE`; sessões somente leitura → `LSP_ACTION_READ_ONLY` antes de qualquer ida e volta com o servidor; formas de comando são reportadas e nunca executadas.
+- **Conflitos nunca sobrescrevem.** Um arquivo mudado em disco após a leitura falha com `LSP_ACTION_CONFLICT`; o `lsp_rename` faz o pré-voo de cada arquivo editado antes da primeira escrita.
+- **Trabalho limitado.** Os tetos de resultados, os tetos de bytes e a política de timeout da plataforma limitam cada chamada; a cache de diagnósticos é uma LRU limitada.
+- **Nada é cacheado no caminho do modelo.** Os resultados das ferramentas vivem apenas no log da sessão; a cache de diagnósticos nunca persiste entre reinícios.
 - **Servidores ruins falham em alto e bom som.** Um executável inexistente falha no carregamento; um servidor que morre na inicialização falha a chamada com `LSP_ACTION_SERVER_FAILED` mais o final do seu stderr (após uma nova tentativa com processo novo).
+- **Higiene do prompt.** O plugin não injeta persona nem prosa de prompt no system prompt da sessão — sua superfície de cara ao modelo são os oito esquemas de ferramentas.
 
-## Arquitetura
+## Architecture
 
 As ações vão **primeiro pelo seam oficial** e caem para o cliente stdio mínimo do próprio plugin:
 
-```
+```text
 lsp_diagnostics / lsp_format / lsp_completion / lsp_code_action /
 lsp_symbols / lsp_signature / lsp_inlay_hints / lsp_rename
         │
@@ -104,85 +169,56 @@ lsp_symbols / lsp_signature / lsp_inlay_hints / lsp_rename
    cliente stdio integrado  ←  tabela servers (ctx.subprocess.spawn + JSON-RPC)
 ```
 
-A extensão do seam está proposta upstream (`upstream/lsp-action-seam.patch`, descrição do PR em `upstream/PR-description.md`). Quando for integrada, o plugin continua funcionando sem mudanças — o cliente integrado simplesmente deixa de ser usado. O cliente integrado permanece como fallback independente para a tabela `servers`. Notas completas de pesquisa e design: [`docs/seam-extension-notes.md`](docs/seam-extension-notes.md), [`upstream/README.md`](upstream/README.md).
+A extensão do seam está proposta upstream (`upstream/lsp-action-seam.patch`, descrição do PR em `upstream/PR-description.md`). Quando for integrada, o plugin continua funcionando sem mudanças — o cliente integrado simplesmente deixa de ser usado. O cliente integrado permanece como fallback independente para a tabela `servers`. O **protocolo de editor** usa o mesmo runner, o mesmo caminho de escrita e a mesma maquinaria de permissões. Notas completas de pesquisa e design: [`docs/seam-extension-notes.md`](docs/seam-extension-notes.md).
 
-## Referência de configuração
+## Known limitations
 
-```ts
-interface Config {
-  /** Servidores de linguagem nomeados; vazio = o cliente próprio não serve nada. */
-  servers?: Record<string, LspServerEntry>
-  maxDiagnostics?: number        // padrão 200
-  maxCompletionItems?: number    // padrão 20
-  maxCodeActions?: number        // padrão 50
-  maxSymbols?: number            // padrão 100
-  maxSignatures?: number         // padrão 10
-  maxInlayHints?: number         // padrão 200
-  maxResultChars?: number        // padrão 16000 (teto do resultado renderizado completo)
-  maxDocumentBytes?: number      // padrão 4000000
-  timeoutMs?: number             // padrão 60000 (aplicado pela política oficial de timeout)
-}
+- **Documentos transitórios.** Cada ação abre o arquivo, executa uma requisição e o fecha de novo (igual ao host stdio oficial). Servidores baseados em projeto que exigem um arquivo aberto residente para requisições sem documento (o tsls recusa `workspace/symbol` sem um) são atendidos passando `file_path` para `lsp_symbols`. O tsls também responde `textDocument/signatureHelp` com `null` sob esse ciclo de vida; outros servidores (gopls, pyright, rust-analyzer) o atendem normalmente.
+- **A formatação de intervalo exige o provider de intervalo do servidor.** Servidores que só anunciam formatação de documento completo falham requisições de intervalo com `LSP_ACTION_UNSUPPORTED`.
+- **A renomeação aplica apenas edições de texto.** Operações de recursos (criar/excluir/renomear arquivos) na resposta de renomeação do servidor são recusadas com `LSP_ACTION_UNSUPPORTED`, e edições fora do workspace falham como `LSP_ACTION_CONFLICT` antes de qualquer escrita.
 
-interface LspServerEntry {
-  command: string                        // executável, resolvido no PATH no carregamento
-  extensionToLanguage: Record<string, string>  // ".ts" → "typescript"
-  fileGlobs?: string[]                   // opcional; globs vencem o mapa de extensões
-  args?: string[]                        // sem shell
-  env?: Record<string, string>
-  initializationOptions?: unknown
-  configuration?: unknown                // forma de objeto responde workspace/configuration por seção
-  formattingOptions?: unknown            // p. ex. { tabSize: 2, insertSpaces: true }
-  maxMessageBytes?: number               // padrão 16000000
-  maxStderrBytes?: number                // padrão 1000000
-  killGraceMs?: number                   // padrão 2000
-  shutdownTimeoutMs?: number             // padrão 5000
-  diagnosticsSettleMs?: number           // padrão 2000 (janela de diagnósticos só por push)
-  diagnosticsDebounceMs?: number         // padrão 250 (período de calma após o último lote enviado)
-  idleTimeoutMs?: number                 // padrão 0 (0 = manter o processo do servidor vivo)
-}
-```
-
-### Códigos de erro
-
-Cada falha carrega um `code` estável no resultado de erro; modelos e chamadores roteiam pelo código, nunca pelo texto da mensagem.
-
-| Code | Significado |
-| --- | --- |
-| `LSP_ACTION_UNAVAILABLE` | Nenhuma entrada de servidor nem provider do seam trata este arquivo. |
-| `LSP_ACTION_UNSUPPORTED` | O servidor (ou o provider do seam) não anuncia a operação. |
-| `LSP_ACTION_SERVER_FAILED` | O servidor falhou (com o final do seu stderr); falhas de inicialização tentam de novo uma vez. |
-| `LSP_ACTION_MALFORMED_RESPONSE` | O servidor enviou uma carga estruturalmente inválida. |
-| `LSP_ACTION_CONFLICT` | O arquivo mudou desde que foi lido, ou as edições do servidor se sobrepõem / saem dos limites / saem do workspace. |
-| `LSP_ACTION_READ_ONLY` | O modo de sandbox da sessão proíbe a escrita da formatação/renomeação. |
-| `LSP_ACTION_WORKSPACE_REQUIRED` | A sessão chamadora não tem um cwd de workspace para enraizar o servidor. |
-| `LSP_ACTION_NO_SYMBOL` | O servidor não encontrou um símbolo renomeável na posição do cursor. |
-
-### Versão de host suportada
-
-O plugin declara os pacotes do DeepSeek Harness como **peer dependencies** (`@deepseek-ai/dsh-fs`, `dsh-llm`, `dsh-sandbox`, `dsh-subprocess`, `dsh-tools` ≥ `0.1.0-rc.6`), de modo que uma única cópia serve ao host e ao plugin. Testado contra `0.1.0-rc.6`.
-
-### Limitações conhecidas
-
-- **Documentos transitórios.** Cada ação abre o arquivo, executa uma requisição e o fecha de novo (igual ao host stdio oficial). Servidores baseados em projeto que exigem um arquivo aberto residente para requisições sem documento (o tsls recusa `workspace/symbol` sem um) são atendidos passando `file_path` para `lsp_symbols`, que mantém o arquivo de roteamento aberto durante aquela requisição. O tsls também responde `textDocument/signatureHelp` com `null` sob esse ciclo de vida; outros servidores (gopls, pyright, rust-analyzer) o atendem normalmente.
-- **Formatação de intervalo exige o provider de intervalo do servidor.** Servidores que só anunciam formatação de documento completo falham requisições de intervalo com `LSP_ACTION_UNSUPPORTED`.
-- **A renomeação aplica apenas edições de texto.** Operações de recursos (criar/excluir/renomear arquivos) na resposta de renomeação do servidor são recusadas com `LSP_ACTION_UNSUPPORTED`, e edições fora do workspace falham com `LSP_ACTION_CONFLICT` antes de qualquer escrita. Em servidores `utf-8`/`utf-32`, as posições de renomeação entre arquivos são decodificadas lendo cada arquivo editado; um arquivo editado ilegível falha a chamada como conflito em vez de decodificar mal as posições.
-
-## Desenvolvimento
+## Development
 
 ```sh
-pnpm install
-pnpm run lint        # oxlint sobre src/ e tests/
-pnpm test            # mais de 240 testes: unidade + integração com servidor fixture + e2e real com tsls
-pnpm run test:coverage   # portões: linhas/instruções/funções ≥ 90%, ramos ≥ 85%
-pnpm build           # emite lib/
+pnpm install            # node ^22.19 || >=24
+pnpm run lint           # oxlint over src/ and tests/
+pnpm test               # vitest: unit + fixture-server integration + editor-protocol e2e + real tsls e2e
+pnpm run test:coverage  # coverage gate
+pnpm build              # tsc --noEmitOnError → lib/
+pnpm run prepare        # tsc --noEmitOnError (runs on install)
+pnpm run prepublishOnly # tsc --noEmitOnError (runs before publish)
 ```
 
-## Contribuidores
+## Topics
 
-Obrigado a todos que contribuíram com este projeto:
+`dsh`, `dsh-plugin`, `deepseek-harness`, `lsp`, `language-server`, `diagnostics`, `formatting`, `completion`, `code-action`, `symbols`, `signature-help`, `inlay-hints`, `rename`, `refactor`, `ide`, `editor`, `vscode`, `acp`, `json-rpc`
 
-- [PerryLink](https://github.com/PerryLink) — o plugin em si: o cliente de ações LSP e o ciclo de vida do servidor, as oito ferramentas, os testes, a CI e a documentação.
+## Contributors
+
+- [@PerryLink](https://github.com/PerryLink) — criador e mantenedor: o cliente de ações LSP e o ciclo de vida do servidor, as oito ferramentas, o protocolo de ações para editores, os testes, a CI e a documentação em cinco idiomas.
+
+## PerryLink DSH Plugin Family
+
+Este projeto é um dos [15 plugins do DeepSeek Harness](https://github.com/PerryLink) mantidos por [PerryLink](https://github.com/PerryLink). Se este ajuda você, os outros provavelmente também ajudarão:
+
+| Plugin | One-liner |
+|---|---|
+| [dsh-mcp-panel](https://github.com/PerryLink/dsh-mcp-panel) | Painel de runtime MCP somente leitura: comando /mcp + aba de configurações com status, ferramentas e erros |
+| [dsh-doublecheck](https://github.com/PerryLink/dsh-doublecheck) | Guardião de disciplina de engenharia: interrogatório de requisitos, portões de teste, revisão adversária |
+| [dsh-background-agents](https://github.com/PerryLink/dsh-background-agents) | Agentes filhos em segundo plano duráveis com barra lateral Web, mensagens e interrupção |
+| **[dsh-lsp-actions](https://github.com/PerryLink/dsh-lsp-actions)** | Diagnósticos, formatação, autocompletar, ações de código e renomeação LSP sobre servidores de linguagem |
+| [dsh-output-styles](https://github.com/PerryLink/dsh-output-styles) | Troca de estilo em tempo de execução equivalente ao outputStyles do Claude Code |
+| [dsh-checkpoint-rewind](https://github.com/PerryLink/dsh-checkpoint-rewind) | Equivalente ao /rewind do Claude Code: snapshots, bifurcações de sessão, restauração em um passo |
+| [dsh-permission-rules](https://github.com/PerryLink/dsh-permission-rules) | Regras de permissão declarativas allow/deny/ask estilo Claude Code com auditoria |
+| [dsh-auto-review](https://github.com/PerryLink/dsh-auto-review) | Auto-revisão com segundo modelo na cadeia de aprovação, fail-closed por padrão |
+| [dsh-memento](https://github.com/PerryLink/dsh-memento) | Memória entre sessões com portão de aprovação: seam ctx.memory + SQLite + ferramenta memory |
+| [dsh-skill-pack-security](https://github.com/PerryLink/dsh-skill-pack-security) | Pacote de habilidades de auditoria de segurança: varredura de segredos, revisão de dependências e cadeia de suprimentos |
+| [dsh-session-pin](https://github.com/PerryLink/dsh-session-pin) | Fixa sessões na barra lateral Web com ordenação durável |
+| [dsh-composer-history](https://github.com/PerryLink/dsh-composer-history) | Histórico de entrada estilo terminal para o compositor web: setas, busca Ctrl+R |
+| [dsh-github](https://github.com/PerryLink/dsh-github) | Integração de PR/issues do GitHub para DSH, cada escrita com portão de aprovação |
+| [dsh-plugin-guide](https://github.com/PerryLink/dsh-plugin-guide) | Base de conhecimento de desenvolvimento de plugins como habilidade de agente sob demanda |
+| [dsh-claude-move](https://github.com/PerryLink/dsh-claude-move) | Migra sessões, memória, habilidades e CLAUDE.md do Claude Code para o DSH |
 
 ## License
 
-[Apache License 2.0](LICENSE)
+[Apache License 2.0](LICENSE) © 2026 dsh-lsp-actions contributors

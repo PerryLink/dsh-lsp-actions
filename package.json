@@ -22,7 +22,7 @@
     "README.es.md",
     "README.hi.md",
     "README.pt.md",
-    "README.zh-CN.md"
+    "README.zh.md"
   ],
   "scripts": {
     "build": "tsc --noEmitOnError",
