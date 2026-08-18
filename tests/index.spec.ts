@@ -151,6 +151,27 @@ describe('lsp-actions apply', () => {
     })).rejects.toThrow(/must map at least one extension/)
   })
 
+  it('rejects a server entry with an empty id at load', async () => {
+    await expect(apply(fake.ctx as never, {
+      ...baseConfig,
+      servers: { '': serverEntry(process.execPath, { '.ts': 'typescript' }) },
+    })).rejects.toThrow(/server ids must be non-empty/)
+  })
+
+  it('rejects a server entry mapping an invalid extension at load', async () => {
+    await expect(apply(fake.ctx as never, {
+      ...baseConfig,
+      servers: { bad: serverEntry(process.execPath, { 'ts/x': 'typescript' }) },
+    })).rejects.toThrow(/maps an invalid extension/)
+  })
+
+  it('rejects a server entry mapping an extension to an empty language id at load', async () => {
+    await expect(apply(fake.ctx as never, {
+      ...baseConfig,
+      servers: { bad: serverEntry(process.execPath, { '.ts': '' }) },
+    })).rejects.toThrow(/empty language id/)
+  })
+
   it('serves a real end-to-end diagnostics call through the assembled plugin', async () => {
     await apply(fake.ctx as never, {
       ...baseConfig,

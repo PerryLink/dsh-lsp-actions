@@ -25,12 +25,15 @@
     "README.zh.md"
   ],
   "scripts": {
-    "build": "tsc --noEmitOnError",
-    "prepare": "tsc --noEmitOnError",
-    "prepublishOnly": "tsc --noEmitOnError",
+    "build": "tsc --noEmitOnError && node scripts/fix-dts.mjs",
+    "prepare": "tsc --noEmitOnError && node scripts/fix-dts.mjs",
+    "prepublishOnly": "tsc --noEmitOnError && node scripts/fix-dts.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "lint": "oxlint src tests"
+    "lint": "oxlint src tests",
+    "check:readmes": "node scripts/check-readme-sync.mjs",
+    "verify:self-contained": "node scripts/verify-self-contained.mjs",
+    "verify:artifacts": "node scripts/verify-artifacts.mjs"
   },
   "keywords": [
     "dsh",
@@ -123,6 +126,8 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/cordis-plugin-include": "1.0.6",
+    "@deepseek-ai/cordis-plugin-loader": "1.0.2",
     "@deepseek-ai/dsh-fs": "0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "0.1.0-rc.6",
     "@deepseek-ai/dsh-lsp": "0.1.0-rc.6",

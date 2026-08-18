@@ -27,6 +27,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm run build
+      - run: pnpm run verify:self-contained
+      - run: pnpm run verify:artifacts
+      - run: pnpm run check:readmes
       - run: pnpm test
 
   coverage:
