@@ -39,6 +39,8 @@ export type EditorEventListener = (event: EditorEvent) => void
 export class EditorActionService {
   private readonly listeners = new Set<EditorEventListener>()
   private started = false
+  /** Serial source for request ids of runs that did not supply one (instance-owned, so a plugin reload never shares it). */
+  private serial = 0
 
   constructor(
     private readonly ctx: Context,
@@ -105,7 +107,7 @@ export class EditorActionService {
    * @returns the unified run envelope.
    */
   async run(request: EditorRunRequest, signal?: AbortSignal): Promise<EditorRunResult> {
-    const requestId = typeof request?.requestId === 'string' && request.requestId !== '' ? request.requestId : `editor-${counter()}`
+    const requestId = typeof request?.requestId === 'string' && request.requestId !== '' ? request.requestId : `editor-${this.counter()}`
     // Every failure — including protocol-level validation — answers through the same structured
     // envelope, so clients route on `status`/`error.code` and never parse JSON-RPC error text.
     const refused = (code: string, message: string): EditorRunResult => {
@@ -185,17 +187,16 @@ export class EditorActionService {
   private announce(event: EditorEvent): void {
     for (const listener of this.listeners) listener(event)
   }
+
+  /** A per-service-instance unique request id for runs that did not supply one. */
+  private counter(): string {
+    this.serial += 1
+    return `editor-${this.serial}`
+  }
 }
 
 /** Map one thrown failure to the stable, plain-JSON error shape of a failed envelope. */
 function structuredError(error: unknown): { code: string; message: string } {
   if (error instanceof LspActionError) return { code: error.code, message: error.message }
   return { code: 'LSP_ACTION_UNAVAILABLE', message: error instanceof Error ? error.message : String(error) }
-}
-
-let serial = 0
-/** A per-service-instance unique request id for runs that did not supply one. */
-function counter(): string {
-  serial += 1
-  return `editor-${serial}`
 }
