@@ -3,6 +3,12 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.3.1 — 2026-08-19
+
+### Fixed
+
+- The editor service's request-id serial is now instance-owned instead of module-level, matching its documented per-instance semantics — a plugin reload no longer shares counter state across mounts.
+
 ## 0.3.0 — 2026-08-16
 
 ### Added
