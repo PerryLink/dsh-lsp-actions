@@ -8,12 +8,12 @@
     "dsh-lsp-editor-backend": "./bin.mjs"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-app-boot": "^0.1.0-rc.5",
-    "@deepseek-ai/dsh-fs-local": "^0.1.0-rc.5",
-    "@deepseek-ai/dsh-fs-observation-policy": "^0.1.0-rc.5",
-    "@deepseek-ai/dsh-subprocess-local": "^0.1.0-rc.5",
-    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.5",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.5",
+    "@deepseek-ai/dsh-app-boot": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-fs-local": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-fs-observation-policy": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-subprocess-local": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.8",
     "dsh-lsp-actions": "^0.3.0"
   },
   "engines": {
