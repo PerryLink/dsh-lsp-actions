@@ -24,7 +24,7 @@
 
 | Surface | Status |
 |---|---|
-| Harness | DeepSeek Harness `0.1.0-rc.6`（对 `>=0.1.0-rc.6` 声明兼容） |
+| Harness | DeepSeek Harness `0.1.0-rc.8`（对 `>=0.1.0-rc.8 <0.2.0` 声明兼容） |
 | Node | `^22.19.0 \|\| >=24.0.0` |
 | Platforms | 全部（纯 host；子进程 + 文件系统，无网络） |
 | Model | 任意（工具与模型无关；插件从不调用模型） |
