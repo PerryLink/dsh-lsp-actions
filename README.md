@@ -1,6 +1,7 @@
 <div align="center">
 
 # 🛰️ dsh-lsp-actions
+[![Gitee](https://img.shields.io/badge/Gitee-mirror-c71d23?logo=gitee)](https://gitee.com/perrylink/dsh-lsp-actions)
 
 **The LSP action surface for DeepSeek Harness — real language servers, real feedback, and the IDE integration backend for editors.**
 
