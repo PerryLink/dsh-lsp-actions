@@ -3,6 +3,17 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.3.3 — 2026-08-22
+
+### Changed
+
+- **rc.2 compatibility release.** All `@deepseek-ai/dsh-*` dev dependencies are pinned to
+  `0.1.1-rc.2`, the harness peer-dependency ranges stay `>=0.1.0-rc.8 <0.2.0`,
+  `dshWorkshop.compatibility.dshVersions` now declares `0.1.1-rc.2`, the CI compat pins and the
+  VS Code backend example track the same release line, and the READMEs declare DeepSeek Harness
+  `0.1.1-rc.2` compatibility. No behavior changes — the full suite (including the real
+  typescript-language-server e2e) passes against the rc.2 runtime.
+
 ## 0.3.2 — 2026-08-21
 
 ### Changed

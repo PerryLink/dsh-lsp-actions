@@ -24,7 +24,7 @@
 
 | Surface | Status |
 |---|---|
-| Harness | DeepSeek Harness `0.1.0-rc.8` (compatibilidade declarada para `>=0.1.0-rc.8 <0.2.0`) |
+| Harness | DeepSeek Harness `0.1.1-rc.2` (compatibilidade declarada para `>=0.1.0-rc.8 <0.2.0`) |
 | Node | `^22.19.0 \|\| >=24.0.0` |
 | Platforms | Todas (host puro; subprocessos + sistema de arquivos, sem rede) |
 | Model | Qualquer (as ferramentas são independentes do modelo; o plugin nunca chama um modelo) |
