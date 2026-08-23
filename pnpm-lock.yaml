@@ -45,7 +45,7 @@ importers:
         specifier: 0.1.1-rc.2
         version: 0.1.1-rc.2(09871eaf880be2109e9d668352ef8c05)
       '@deepseek-ai/schemastery':
-        specifier: ^3.0.0
+        specifier: ^3.18.0
         version: 3.18.1
       '@types/node':
         specifier: ^26.2.0

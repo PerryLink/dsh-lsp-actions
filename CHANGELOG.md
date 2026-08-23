@@ -3,6 +3,14 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- **Schemastery compatibility floor.** The `@deepseek-ai/schemastery` peer and dev dependency
+  floor is raised from `^3.0.0` to `^3.18.0`, matching the harness release line. No behavior
+  changes.
+
 ## 0.3.3 — 2026-08-22
 
 ### Changed
