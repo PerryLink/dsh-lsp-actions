@@ -1,6 +1,6 @@
 {
   "name": "dsh-lsp-actions",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "LSP action surface for DeepSeek Harness: diagnostics, formatting, completion, code actions, symbols, signature help, inlay hints, and rename tools over language servers, plus the editor action protocol (lsp.actions.*) that makes the plugin the IDE integration backend",
   "type": "module",
   "main": "lib/index.js",
