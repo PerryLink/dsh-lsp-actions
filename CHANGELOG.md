@@ -3,6 +3,12 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.4.0 — 2026-08-26
+
+### Added
+
+- 常驻会话客户端（保 didOpen）+ runner 抽象为公开 provider 接口。
+
 ## 0.3.4 — 2026-08-23
 
 ### Changed
