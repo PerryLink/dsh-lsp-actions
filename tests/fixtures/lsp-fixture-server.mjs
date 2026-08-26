@@ -33,6 +33,13 @@ const flagValue = (flag) => {
   return index >= 0 ? process.argv[index + 1] : null
 }
 
+const trackSync = flagValue('--track-sync')
+
+const track = (kind, uri, extra) => {
+  if (trackSync === null) return
+  appendFileSync(trackSync, `${kind}:${uri}${extra === undefined ? '' : `:${extra}`}\n`)
+}
+
 if (args.has('--fail-start')) {
   process.stderr.write('fixture: refusing to start\n')
   process.exit(2)
@@ -215,6 +222,7 @@ function handle(id, method, params) {
       return
     case 'textDocument/didOpen': {
       opened.set(params.textDocument.uri, params.textDocument.text)
+      track('didOpen', params.textDocument.uri, params.textDocument.version)
       if (pushDiag) {
         if (multiPush) {
           // A partial batch first, then a complete one shortly after: the client must return the
@@ -239,6 +247,11 @@ function handle(id, method, params) {
     }
     case 'textDocument/didClose':
       opened.delete(params.textDocument.uri)
+      track('didClose', params.textDocument.uri)
+      return
+    case 'textDocument/didChange':
+      opened.set(params.textDocument.uri, params.contentChanges[0]?.text ?? '')
+      track('didChange', params.textDocument.uri, params.textDocument.version)
       return
     case 'textDocument/diagnostic':
       if (askConfig && configAnswers.length === 0) {

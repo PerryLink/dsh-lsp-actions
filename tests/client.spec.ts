@@ -129,6 +129,38 @@ describe('LspActionClient against the fixture server', () => {
     }
   })
 
+  it('keeps a document open across requests (resident didOpen, no per-request didClose)', async () => {
+    const client = makeClient()
+    const marker = join(root, 'sync.txt')
+    const { request, server } = await prepare(client, fixtureServer(['--track-sync', marker]))
+    try {
+      await client.diagnostics(server, request)
+      await client.diagnostics(server, request)
+      const lines = (await readFile(marker, 'utf8')).trim().split('\n')
+      expect(lines.filter(line => line.startsWith('didOpen:'))).toHaveLength(1)
+      expect(lines.filter(line => line.startsWith('didChange:'))).toHaveLength(0)
+      expect(lines.filter(line => line.startsWith('didClose:'))).toHaveLength(0)
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
+  it('sends one full-document didChange when the source changes, still without didClose', async () => {
+    const client = makeClient()
+    const marker = join(root, 'sync2.txt')
+    const { request, server } = await prepare(client, fixtureServer(['--track-sync', marker]))
+    try {
+      await client.diagnostics(server, request)
+      await client.diagnostics(server, { ...request, source: { ...request.source, text: 'alpha\n    beta\ngamma\n    delta\n' } })
+      const lines = (await readFile(marker, 'utf8')).trim().split('\n')
+      expect(lines.filter(line => line.startsWith('didOpen:'))).toHaveLength(1)
+      expect(lines.filter(line => line.startsWith('didChange:'))).toHaveLength(1)
+      expect(lines.filter(line => line.startsWith('didClose:'))).toHaveLength(0)
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
   it('answers workspace/configuration per section, falling back to the whole value', async () => {
     const client = makeClient()
     const configuration = { typescript: { format: 'x' }, python: 'py' }

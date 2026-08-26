@@ -172,9 +172,11 @@ lsp_symbols / lsp_signature / lsp_inlay_hints / lsp_rename
 
 The seam extension is proposed upstream (`upstream/lsp-action-seam.patch`, PR description in `upstream/PR-description.md`). Once it lands, the plugin keeps working unchanged — the built-in client simply stops being used. The built-in client stays as the standalone fallback for the `servers` table. The **editor protocol** rides the same runner, the same write path, and the same permission machinery. Full research and design notes: [`docs/seam-extension-notes.md`](docs/seam-extension-notes.md).
 
+The action backend is behind a public provider interface — `ActionRunner` (exported from the package) — implemented by the bundled runner and open to third-party providers: the eight tools consume only that interface, never a concrete client.
+
 ## Known limitations
 
-- **Transient documents.** Every action opens the file, runs one request, and closes it again (matching the official stdio host). Project-based servers that require a resident open file for document-free requests (tsls refuses `workspace/symbol` without one) are served by passing `file_path` to `lsp_symbols`. tsls also answers `textDocument/signatureHelp` with `null` under this lifecycle; other servers (gopls, pyright, rust-analyzer) serve it normally.
+- **Resident documents.** Each document opens once and stays open for the server instance's lifetime — a later request with changed source sends one full-document `didChange`, and the process shutdown closes every document — so project-based servers like tsls serve `textDocument/signatureHelp` and document-free `workspace/symbol` instead of answering `null` on a freshly-closed document. The resident set is bounded by the workspace and cleared with the instance (idle eviction or plugin disposal).
 - **Range formatting requires the server's range provider.** Servers that only advertise whole-document formatting fail range requests with `LSP_ACTION_UNSUPPORTED`.
 - **Rename applies text edits only.** Resource operations (create/delete/rename files) in a server's rename answer are refused with `LSP_ACTION_UNSUPPORTED`, and edits outside the workspace fail as `LSP_ACTION_CONFLICT` before anything is written.
 

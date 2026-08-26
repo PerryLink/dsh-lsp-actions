@@ -24,6 +24,8 @@ import { registerCompletionTool, registerDiagnosticsTool, registerFormatTool, re
 
 export { LspServerEntry } from './servers.ts'
 export { LspActionClient } from './client.ts'
+export { createActionRunner } from './runner.ts'
+export type { ActionRunner, RunnerRequest } from './runner.ts'
 export { LspActionError } from './vocabulary.ts'
 export type {
   LspActionErrorCode,

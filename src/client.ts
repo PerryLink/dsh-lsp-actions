@@ -1,8 +1,10 @@
 /**
  * The plugin's own minimal LSP action client — the fallback for compositions where the official
  * `ctx.lsp` seam does not serve action operations yet. One server process per (server entry,
- * canonical workspace), lazily spawned and serialized; each action runs the transient
- * didOpen→request→didClose lifecycle the servers expect, and teardown is bounded. See
+ * canonical workspace), lazily spawned and serialized; each document runs a resident
+ * didOpen→(didChange)→… lifecycle (open once, kept open until process teardown) so project-based
+ * servers like typescript-language-server keep serving signatureHelp and document-free
+ * workspace/symbol instead of answering null on a document that was just closed. See
  * `docs/seam-extension-notes.md` for the migration story to the official seam.
  * @module dsh-lsp-actions/client
  */
@@ -467,8 +469,14 @@ class LspActionInstance {
   /** Latest pushed diagnostic batch per document URI (push-only servers). */
   private readonly pushed = new Map<string, LspDiagnostic[]>()
   private readonly pushWaiters = new Map<string, () => void>()
-  /** Per-document text (and codec) for the transiently opened document, for push-path conversion. */
+  /** Per-document text (and codec) for the resident open document, for push-path conversion. */
   private readonly openedDocs = new Map<string, { readonly text: string; readonly codec: PositionCodec | undefined }>()
+  /**
+   * Resident open documents per URI: kept open for the instance's lifetime so project-based
+   * servers (tsls) keep serving signatureHelp and document-free workspace/symbol. didOpen runs
+   * once per URI; a later request with changed source sends a full-document didChange.
+   */
+  private readonly residentDocs = new Map<string, { version: number; text: string }>()
 
   constructor(private readonly spec: InstanceSpec, spawner: ConnectionSpawner) {
     this.connection = new LspConnection({
@@ -776,7 +784,12 @@ class LspActionInstance {
     }
   }
 
-  /** Run `body` inside the transient didOpen→didClose document lifecycle. */
+  /**
+   * Run `body` inside the resident didOpen→(didChange) document lifecycle: a document is opened
+   * once per instance and stays open (no per-request didClose), so project-based servers (tsls)
+   * keep serving signatureHelp and document-free workspace/symbol. A later request with changed
+   * source sends a full-document didChange; process shutdown closes every document.
+   */
   private async withDocument<T>(
     request: ActionRequest,
     signal: AbortSignal | undefined,
@@ -784,37 +797,40 @@ class LspActionInstance {
   ): Promise<T> {
     const uri = request.source.fileUrl
     const key = normalizeFileUri(uri)
-    let opened = false
+    const resident = this.residentDocs.get(key)
     try {
       if (signal?.aborted) throw signal.reason
-      try {
-        await abortable(this.connection.notify('textDocument/didOpen', {
-          textDocument: { uri, languageId: request.languageId, version: 1, text: request.source.text },
-        }), signal)
-      } catch (error) {
-        // A canceled backpressured write or failed stdin leaves the protocol stream unusable.
-        await this.startTeardown().catch(() => {})
-        throw error
+      if (resident === undefined) {
+        try {
+          await abortable(this.connection.notify('textDocument/didOpen', {
+            textDocument: { uri, languageId: request.languageId, version: 1, text: request.source.text },
+          }), signal)
+        } catch (error) {
+          // A canceled backpressured write or failed stdin leaves the protocol stream unusable.
+          await this.startTeardown().catch(() => {})
+          throw error
+        }
+        this.residentDocs.set(key, { version: 1, text: request.source.text })
+      } else if (resident.text !== request.source.text) {
+        try {
+          await abortable(this.connection.notify('textDocument/didChange', {
+            textDocument: { uri, version: resident.version + 1 },
+            contentChanges: [{ text: request.source.text }],
+          }), signal)
+        } catch (error) {
+          await this.startTeardown().catch(() => {})
+          throw error
+        }
+        resident.version += 1
+        resident.text = request.source.text
       }
-      opened = true
-      // Remember the opened text so push notifications (publishDiagnostics) can be decoded from
-      // the server's position encoding.
+      // Remember the open text so push notifications (publishDiagnostics) can be decoded from
+      // the server's position encoding; it persists for the instance's lifetime.
       this.openedDocs.set(key, { text: request.source.text, codec: this.codecFor(request.source.text) })
       return await body(uri)
     } finally {
-      this.openedDocs.delete(key)
-      // A disposed or closed instance is already tearing down; sending didClose would race it.
-      if (opened && !this.dead) {
-        try {
-          await this.connection.notify('textDocument/didClose', { textDocument: { uri } })
-        } catch {
-          try {
-            await this.startTeardown()
-          } catch {
-            // Teardown owns all expected process races; preserve the settled action outcome.
-          }
-        }
-      }
+      // Resident session: no didClose here — teardown terminates the process and closes all
+      // documents; a fresh instance (next workspace or after eviction) starts with an empty map.
     }
   }
 

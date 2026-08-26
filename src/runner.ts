@@ -48,7 +48,12 @@ export interface RunnerRequest {
   readonly onlyKinds?: readonly string[]
 }
 
-/** The unified surface the tools consume, agnostic of which backend served the result. */
+/**
+ * The LSP action provider interface: the unified surface the tools consume, agnostic of which
+ * backend served the result. The bundled runner (seam-first, own-client-fallback) implements it;
+ * a third-party plugin can implement and register an alternative provider of this same contract
+ * without touching the tools.
+ */
 export interface ActionRunner {
   diagnostics(request: RunnerRequest, signal?: AbortSignal): Promise<LspDiagnosticsResult>
   formatDocument(request: RunnerRequest, signal?: AbortSignal): Promise<LspEditsResult>
