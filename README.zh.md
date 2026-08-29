@@ -1,6 +1,7 @@
 <div align="center">
 
 # 🛰️ dsh-lsp-actions
+- **1024 商店渠道**：先 `npm i -g dsh1024`，再 `dsh1024 plugin --profile web add dsh-lsp-actions`（计入 [deepseek1024.com](https://deepseek1024.com) 安装排行）。
 
 **DeepSeek Harness 的 LSP 动作面 —— 真实的语言服务器、真实的反馈，以及面向编辑器的 IDE 集成后端。**
 

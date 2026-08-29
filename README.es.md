@@ -1,6 +1,7 @@
 <div align="center">
 
 # 🛰️ dsh-lsp-actions
+- **Canal 1024 store**: `npm i -g dsh1024` una vez, luego `dsh1024 plugin --profile web add dsh-lsp-actions` (cuenta para el ranking de instalaciones de [deepseek1024.com](https://deepseek1024.com)).
 
 **La superficie de acción LSP para DeepSeek Harness — servidores de lenguaje reales, retroalimentación real y el backend de integración IDE para editores.**
 
