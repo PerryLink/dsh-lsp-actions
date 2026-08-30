@@ -10,11 +10,11 @@
  * @module dsh-lsp-actions/editor/actions
  */
 
-import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { approveEscalation, sandboxDenialMarker, escalationHintMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
 import type { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
+import { CallId } from '../call-id.ts'
 import { applyEdits } from '../edits.ts'
 import { readHostSource, canonicalizeWorkspace, workspaceRelativePath } from '../host.ts'
 import type { HostSource, HostWorkspace } from '../host.ts'

@@ -3,6 +3,12 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Stop importing the `CallId` runtime value from `@deepseek-ai/dsh-llm` (removed in DeepSeek Harness `0.1.2-alpha.1`; renamed `ToolCallId`): the editor escalation-approval context now builds its call id through a local identity helper typed from the `@deepseek-ai/dsh-tools` execution contract, so approvals no longer crash on hosts without the old export.
+
 ## 0.4.0 — 2026-08-26
 
 ### Added
