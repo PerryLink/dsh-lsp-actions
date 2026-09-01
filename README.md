@@ -26,7 +26,7 @@
 
 | Surface | Status |
 |---|---|
-| Harness | DeepSeek Harness `0.1.1-rc.2` (compat declared for `>=0.1.0-rc.8 <0.2.0`) 0.1.2-alpha.2 (adapted 2026-08-31): the session envelope keeps its ignorable field for stored-log read compatibility only - Session.append still cannot stamp it, so audit-gate behavior is unchanged. |
+| Harness | DeepSeek Harness `0.1.2-alpha.3` (compat declared for `>=0.1.0-rc.8 <0.2.0`); the plugin writes no session events itself - the host records the standard tool/call + tool/result events. |
 | Node | `^22.19.0 \|\| >=24.0.0` |
 | Platforms | All (pure host; subprocess + filesystem, no network) |
 | Model | Any (tools are model-agnostic; the plugin never calls a model) |

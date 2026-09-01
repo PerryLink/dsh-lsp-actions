@@ -3,6 +3,12 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Upgrade the `@deepseek-ai/dsh-*` dev dependencies from `0.1.2-alpha.2` to `0.1.2-alpha.3` (peer ranges stay `>=0.1.0-rc.8 <0.2.0`), align the `@deepseek-ai/cordis` / `@deepseek-ai/schemastery` peer and dev carets to `^4.0.2` / `^3.18.2`, refresh `dshWorkshop.compatibility.dshVersions`, sync the editor backend example dependencies to `^0.1.2-alpha.3`, repoint the compat workflow to the alpha.3 CLI/base/headless, and rewrite the five-language README compatibility rows to the alpha.3 fact (the plugin writes no session events itself).
+
 ## 0.4.1 — 2026-08-30
 
 ### Fixed

@@ -25,7 +25,7 @@
 
 | Surface | Status |
 |---|---|
-| Harness | DeepSeek Harness `0.1.1-rc.2` (compatibilidade declarada para `>=0.1.0-rc.8 <0.2.0`) 0.1.2-alpha.2 (adaptado em 2026-08-31): o envelope de sessão mantém seu campo ignorable apenas para compatibilidade de leitura de logs armazenados - o Session.append ainda não consegue estampá-lo, então o comportamento da porta não muda. |
+| Harness | DeepSeek Harness `0.1.2-alpha.3` (compatibilidade declarada para `>=0.1.0-rc.8 <0.2.0`); o plugin não grava eventos de sessão próprios - o host registra os eventos padrão tool/call + tool/result. |
 | Node | `^22.19.0 \|\| >=24.0.0` |
 | Platforms | Todas (host puro; subprocessos + sistema de arquivos, sem rede) |
 | Model | Qualquer (as ferramentas são independentes do modelo; o plugin nunca chama um modelo) |
