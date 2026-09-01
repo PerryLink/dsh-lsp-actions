@@ -25,7 +25,7 @@
 
 | Surface | Status |
 |---|---|
-| Harness | DeepSeek Harness `0.1.1-rc.2`（对 `>=0.1.0-rc.8 <0.2.0` 声明兼容） |
+| Harness | DeepSeek Harness `0.1.1-rc.2`（对 `>=0.1.0-rc.8 <0.2.0` 声明兼容） 0.1.2-alpha.2（2026-08-31 已适配）：会话信封保留 ignorable 字段但仅用于存量日志读取兼容——Session.append 仍无法盖章，门控行为不变。 |
 | Node | `^22.19.0 \|\| >=24.0.0` |
 | Platforms | 全部（纯 host；子进程 + 文件系统，无网络） |
 | Model | 任意（工具与模型无关；插件从不调用模型） |
