@@ -99,7 +99,7 @@
     ],
     "compatibility": {
       "dshVersions": [
-        "0.1.2-alpha.2"
+        "0.1.2-alpha.3"
       ]
     },
     "capability": {
@@ -116,28 +116,28 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/dsh-fs": ">=0.1.0-rc.8 <0.2.0",
     "@deepseek-ai/dsh-llm": ">=0.1.0-rc.8 <0.2.0",
     "@deepseek-ai/dsh-sandbox": ">=0.1.0-rc.8 <0.2.0",
     "@deepseek-ai/dsh-subprocess": ">=0.1.0-rc.8 <0.2.0",
     "@deepseek-ai/dsh-tools": ">=0.1.0-rc.8 <0.2.0",
-    "@deepseek-ai/schemastery": "^3.18.0"
+    "@deepseek-ai/schemastery": "^3.18.2"
   },
-  "devDependencies": {"@deepseek-ai/dsh-attachment": "0.1.2-alpha.2", 
+  "devDependencies": {"@deepseek-ai/dsh-attachment": "0.1.2-alpha.3", 
     "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/cordis-plugin-include": "1.0.6",
     "@deepseek-ai/cordis-plugin-loader": "1.0.2",
-    "@deepseek-ai/dsh-fs": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-llm": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-lsp": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-sandbox": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-sandbox-policy": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-subprocess": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-timeout": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-tools": "0.1.2-alpha.2",
-    "@deepseek-ai/dsh-user-approval": "0.1.2-alpha.2",
-    "@deepseek-ai/schemastery": "^3.18.0",
+    "@deepseek-ai/dsh-fs": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-llm": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-lsp": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-sandbox": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-sandbox-policy": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-subprocess": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-timeout": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-tools": "0.1.2-alpha.3",
+    "@deepseek-ai/dsh-user-approval": "0.1.2-alpha.3",
+    "@deepseek-ai/schemastery": "^3.18.2",
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "^3.2.7",
     "oxlint": "^1.78.0",
