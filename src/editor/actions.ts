@@ -10,7 +10,7 @@
  * @module dsh-lsp-actions/editor/actions
  */
 
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { approveEscalation, sandboxDenialMarker, escalationHintMarker, validateEscalationArgs } from '@deepseek-ai/dsh-sandbox'
@@ -334,7 +334,7 @@ async function resolveEditorPolicy(
       {
         approver: deps.ctx.get('approval') as Parameters<typeof approveEscalation>[1]['approver'],
         agent: run.agent,
-        callId: CallId(`lsp-editor:${run.requestId}`),
+        callId: ToolCallId(`lsp-editor:${run.requestId}`),
         toolName,
         signal: run.signal,
       },
