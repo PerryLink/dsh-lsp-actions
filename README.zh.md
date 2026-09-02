@@ -25,7 +25,7 @@
 
 | Surface | Status |
 |---|---|
-| Harness | DeepSeek Harness `0.1.2-alpha.3`（对 `>=0.1.0-rc.8 <0.2.0` 声明兼容）；插件不自写会话事件——宿主记录标准 tool/call + tool/result 事件。 |
+| Harness | DeepSeek Harness `0.1.2-alpha.5`（对 `>=0.1.0-rc.8 <0.2.0` 声明兼容）；插件不自写会话事件——宿主记录标准 tool/call + tool/result 事件。 |
 | Node | `^22.19.0 \|\| >=24.0.0` |
 | Platforms | 全部（纯 host；子进程 + 文件系统，无网络） |
 | Model | 任意（工具与模型无关；插件从不调用模型） |
