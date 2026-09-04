@@ -3,6 +3,12 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.4] - 2026-09-04
+
+### Changed
+
+- Align the devDependency pins to the published dsh `0.1.2-rc.1` line, repoint the compat workflow (CLI/base/headless) from the stale `0.1.2-alpha.3` pins to `0.1.2-rc.1`, sync the editor backend example dependencies, and refresh the five-language README compatibility rows; no behavior change.
+
 ## [0.4.3] - 2026-09-02
 
 ### Changed

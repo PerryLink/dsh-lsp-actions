@@ -25,7 +25,7 @@
 
 | Surface | Status |
 |---|---|
-| Harness | DeepSeek Harness `0.1.2-alpha.5` (compatibilidade declarada para `>=0.1.0-rc.8 <0.2.0`); o plugin não grava eventos de sessão próprios - o host registra os eventos padrão tool/call + tool/result. |
+| Harness | DeepSeek Harness `0.1.2-rc.1` (compatibilidade declarada para `>=0.1.0-rc.8 <0.2.0`); o plugin não grava eventos de sessão próprios - o host registra os eventos padrão tool/call + tool/result. |
 | Node | `^22.19.0 \|\| >=24.0.0` |
 | Platforms | Todas (host puro; subprocessos + sistema de arquivos, sem rede) |
 | Model | Qualquer (as ferramentas são independentes do modelo; o plugin nunca chama um modelo) |
