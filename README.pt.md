@@ -25,7 +25,7 @@
 
 | Surface | Status |
 |---|---|
-| Harness | DeepSeek Harness `0.1.2-rc.1` (compatibilidade declarada para `>=0.1.2-rc.1 <0.2.0`); o plugin não grava eventos de sessão próprios - o host registra os eventos padrão tool/call + tool/result. Verificado em 2026-09-06 contra o checkout master dsh-v0.1.3-alpha.1 (cadeia de gates completa + smoke de instalação de perfil). |
+| Harness | DeepSeek Harness `dsh-v0.1.3-alpha.1` (compatibilidade declarada para `>=0.1.2-rc.1 <0.2.0`); o plugin não grava eventos de sessão próprios - o host registra os eventos padrão tool/call + tool/result. Verificado em 2026-09-06 contra o checkout master dsh-v0.1.3-alpha.1 (cadeia de gates completa + smoke de instalação de perfil). |
 | Node | `^22.19.0 \|\| >=24.0.0` |
 | Platforms | Todas (host puro; subprocessos + sistema de arquivos, sem rede) |
 | Model | Qualquer (as ferramentas são independentes do modelo; o plugin nunca chama um modelo) |
