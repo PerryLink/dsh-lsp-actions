@@ -127,6 +127,7 @@ export const name = 'lsp-actions'
 /** Services required by this plugin. */
 export const inject = ['tools', 'fs', 'subprocess']
 
+// Service Definition — the plugin contract: LSP action vocabulary re-exports, the config schema below, and the runner/seam service types.
 /** Plugin configuration schema (schemastery fills every default; misconfiguration fails at load). */
 export const Config = ConfigSchema
 
@@ -172,9 +173,11 @@ export async function apply(ctx: Context, config: ConfigType): Promise<void> {
   // `ctx.lsp` is an optional capability: typed required by the seam package, absent at runtime in
   // compositions without a provider. Consume it structurally and lazily, never by import or by an
   // apply-time snapshot — the seam may load after this plugin or be re-added mid-session.
+  // Consumer — resolves the optional ctx.lsp seam lazily and drives the stdio client over ctx.subprocess/ctx.fs per call.
   const getSeam = (): SeamService | undefined => ctx.get('lsp') as unknown as SeamService | undefined
   const runner = createActionRunner({ getSeam, client, servers })
 
+  // Service Provider — registers the eight LSP action tools plus the optional editor JSON-RPC transport through a scoped ctx.effect.
   ctx.effect(() => {
     registerDiagnosticsTool(ctx, runner, resolved)
     registerCompletionTool(ctx, runner, resolved)
