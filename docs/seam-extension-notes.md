@@ -74,3 +74,29 @@
 - seam 路径下工具也先读一遍源文件（为了 format 的 diff 基线与观测），seam provider 内部会再读一份；代价是双读，换来单一基线与统一 prepare 路径，PR 合入后可优化。
 - 坏 server 启动：命令在 **load 期**经 `subprocess.resolveExecutable` 解析（与 lsp-stdio 对齐，坏命令 fail loud at load）；运行期握手/进程失败 → `LSP_ACTION_SERVER_FAILED` + stderr tail，且不重试（调用失败即 isError，模型重跑会因死实例被逐出而重新拉起）。
 - 诊断卡片的"严重级颜色"是中性的卡片词汇没有的字段；卡片只带 `[Error]` 等标签文本与行号，颜色映射是 UI 桥接层的能力（README 已注明）。
+
+## 6. Status check 2026-09-09 (0.1.5-alpha.1)
+
+> English-only addendum (ASCII gate). Measured read-only against
+> `origin/master` = `5dda764e` (`0.1.5-alpha.1`).
+
+- **The official lsp group still ships the three packages this note
+  recorded at `a0ab396`**: `packages/lsp/lsp` (`@deepseek-ai/dsh-lsp`, the
+  `ctx.lsp` seam -- provider registry plus normalized query, closed
+  four-operation union, `LspError` taxonomy), `packages/lsp/lsp-stdio`
+  (`@deepseek-ai/dsh-lsp-stdio`, registers stdio providers on `ctx.lsp`),
+  `packages/lsp/tool-lsp` (`@deepseek-ai/dsh-tool-lsp`, the model-facing
+  tool). `git grep -n 'ctx\.lsp' origin/master -- packages/lsp` confirms
+  the seam is live.
+- **None of the three proposed action operations landed.**
+  `git grep -n 'diagnostics\|formatDocument\|completion' origin/master --
+  packages/lsp/lsp/src` -> 0 hits (exit 1). `LspOperation` remains the
+  closed union `goToDefinition | findReferences | goToImplementation |
+  hover` and `LspQueryResult` remains `locations | hover`, so the
+  seam-extension patch (`upstream/lsp-action-seam.patch`) is still unmerged
+  and its vocabulary change remains open.
+- **Patch re-verification is due.** The patch applied cleanly against
+  `a0ab396` (2026-08-15). `git rev-list --count a0ab396..origin/master` =
+  **3796 commits** (measured 2026-09-09; the earlier "879+" estimate is
+  superseded). A fresh `git apply --check` against the current tree is the
+  next step; the patch was **not re-applied** in this status check.
