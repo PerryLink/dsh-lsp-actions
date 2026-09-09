@@ -71,7 +71,6 @@ function spawnForTest(spec) {
   }
   spec.signal?.addEventListener('abort', terminate, { once: true })
   return {
-    pid: child.pid ?? -1,
     stdin: child.stdin,
     stdout: stdoutMode === 'pipe' ? child.stdout : undefined,
     stderr: stderrMode === 'pipe' ? child.stderr : undefined,

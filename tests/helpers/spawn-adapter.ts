@@ -92,7 +92,6 @@ export function spawnForTest(spec: SubprocessSpawnSpec): SubprocessHandle {
   spec.signal?.addEventListener('abort', terminate, { once: true })
 
   return {
-    pid: child.pid ?? -1,
     stdin: child.stdin as Writable | undefined,
     stdout: stdoutMode === 'pipe' ? (child.stdout as Readable) : undefined,
     stderr: stderrMode === 'pipe' ? (child.stderr as Readable) : undefined,
