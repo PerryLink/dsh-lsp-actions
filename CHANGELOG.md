@@ -3,6 +3,20 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.7] - 2026-09-09
+
+### Fixed
+
+- Remove the `LspConnection.pid` accessor: dsh `0.1.5-alpha.1` deleted `SubprocessHandle.pid` (`a95f0b368f`, which also removed the byte-identical getter from the official `lsp-stdio` connection), and no code in this plugin ever read it; the connection still terminates through `terminate()` / `waitForExit()` and reports failures through the retained stderr tail. No behavior change.
+
+### Changed
+
+- Adapt to DeepSeek Harness `dsh-v0.1.5-alpha.1`: widen the `@deepseek-ai/dsh-*` peer ranges to `>=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0` (prerelease-tuple resolution makes the plain band reject `0.1.5-alpha.1`), pin the devDependencies to `0.1.5-alpha.1`, append the new version to `dshWorkshop.compatibility.dshVersions`, repoint the compat workflow (CLI/base/headless) and the editor backend example dependencies to `0.1.5-alpha.1`; no behavior change.
+
+### Docs
+
+- Refresh the five-language README compatibility rows to `dsh-v0.1.5-alpha.1` (verified 2026-09-09) and record the executed seam status check in `docs/seam-extension-notes.md` §6.
+
 ## [0.4.6] - 2026-09-07
 
 ### Docs
