@@ -25,7 +25,7 @@
 
 | Surface | Status |
 |---|---|
-| Harness | DeepSeek Harness `dsh-v0.1.3-alpha.1`（对 `>=0.1.2-rc.1 <0.2.0` 声明兼容）；插件不自写会话事件——宿主记录标准 tool/call + tool/result 事件；已于 2026-09-06 对照 dsh-v0.1.3-alpha.1 master checkout 核验（完整 gate 链 + profile 安装冒烟）。 |
+| Harness | DeepSeek Harness `dsh-v0.1.5-alpha.1`（对 `>=0.1.2-rc.1 <0.2.0 \|\| >=0.1.5-alpha.1 <0.2.0` 声明兼容）；插件不自写会话事件——宿主记录标准 tool/call + tool/result 事件；已于 2026-09-09 对照 dsh-v0.1.5-alpha.1 master checkout 核验（完整 gate 链 + profile 安装冒烟）。 |
 | Node | `^22.19.0 \|\| >=24.0.0` |
 | Platforms | 全部（纯 host；子进程 + 文件系统，无网络） |
 | Model | 任意（工具与模型无关；插件从不调用模型） |

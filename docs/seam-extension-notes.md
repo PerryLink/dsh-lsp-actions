@@ -95,8 +95,17 @@
   hover` and `LspQueryResult` remains `locations | hover`, so the
   seam-extension patch (`upstream/lsp-action-seam.patch`) is still unmerged
   and its vocabulary change remains open.
-- **Patch re-verification is due.** The patch applied cleanly against
-  `a0ab396` (2026-08-15). `git rev-list --count a0ab396..origin/master` =
-  **3796 commits** (measured 2026-09-09; the earlier "879+" estimate is
-  superseded). A fresh `git apply --check` against the current tree is the
-  next step; the patch was **not re-applied** in this status check.
+- **Patch re-verification ran, and the patch no longer applies.** It applied
+  cleanly against `a0ab396` (2026-08-15).
+  `git rev-list --count a0ab396..origin/master` = **3796 commits** (measured
+  2026-09-09; the earlier "879+" estimate is superseded). A fresh
+  `git apply --check upstream/lsp-action-seam.patch` against the current tree
+  fails on **20 of its 34 files** (`patch does not apply`), so the patch needs
+  a rebase before it can be re-proposed; it was **not re-applied**. This is an
+  independent tracking item and does not block the plugin release.
+- **`SubprocessHandle.pid` is gone from the 0.1.5 seam.** `a95f0b368f` deleted
+  it together with the byte-identical getter in
+  `packages/lsp/lsp-stdio/src/connection.ts`; `SubprocessOutcome` carries only
+  `exitCode`/`signal`, and `SubprocessTerminalHandle.pid` belongs to the
+  terminal seam, not piped stdio. The plugin's own `LspConnection.pid`
+  accessor had no consumer and was removed in 0.4.7.
