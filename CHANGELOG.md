@@ -5,6 +5,9 @@ All notable changes to dsh-lsp-actions are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-10
+
+
 ### Added
 
 - Project-config routing (`servers.<id>.projectMarkers`, issue #4): the nearest ancestor directory — walking up to the workspace root — that holds a configured project config file now decides which server serves a file, so sibling projects sharing an extension can use different servers. `["deno.json", "deno.jsonc"]` on the Deno entry and `["package.json", "tsconfig.json"]` on the TypeScript entry serve `apps/deno-app/src/main.ts` and `apps/node-app/src/main.ts` from their own servers with no path rule, and adding, renaming, or moving a project needs no configuration change. Routing order is `fileGlobs` → nearest project marker (matched only against entries that map the file's extension) → `extensionToLanguage`; the walk never leaves the workspace root, a project config never applies to a sibling directory, and an entry that declares no marker (the default) behaves exactly as before.
