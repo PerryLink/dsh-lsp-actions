@@ -19,10 +19,10 @@
     "cordis.patch.yml",
     "CHANGELOG.md",
     "README.md",
-    "README.es.md",
-    "README.hi.md",
-    "README.pt.md",
-    "README.zh.md"
+    "README-es.md",
+    "README-hi.md",
+    "README-pt.md",
+    "README-zh.md"
   ],
   "scripts": {
     "build": "tsc --noEmitOnError && node scripts/fix-dts.mjs",
