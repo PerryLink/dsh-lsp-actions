@@ -98,7 +98,7 @@ servers:
     projectMarkers: ["deno.json", "deno.jsonc"]
 ```
 
-A project marker only decides among servers that already map the file's extension (it never widens an entry's file types); the walk never leaves the workspace root, and a project config in one directory never applies to a sibling directory. These rules govern the built-in stdio client — a mounted `ctx.lsp` seam provider decides its own routing.
+A project marker only decides among servers that already map the file's extension (it never widens an entry's file types); the walk never leaves the workspace root, and a project config in one directory never applies to a sibling directory. Step **(1)** outranks a project marker: an entry whose `fileGlobs` match the path still wins, so drop project-level globs when you adopt `projectMarkers` — a lingering `**/*.ts` glob keeps claiming those files. These rules govern the built-in stdio client — a mounted `ctx.lsp` seam provider decides its own routing.
 
 ## Tools & surfaces
 

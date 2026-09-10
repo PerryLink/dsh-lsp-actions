@@ -97,7 +97,7 @@ servers:
     projectMarkers: ["deno.json", "deno.jsonc"]
 ```
 
-Um marcador de projeto só decide entre servidores que já mapeiam a extensão do arquivo (nunca amplia os tipos de arquivo de uma entrada); a busca nunca sai da raiz do workspace, e a configuração de projeto de um diretório nunca se aplica a um diretório irmão. Estas regras regem o cliente stdio integrado; um provider do seam `ctx.lsp` montado decide seu próprio roteamento.
+Um marcador de projeto só decide entre servidores que já mapeiam a extensão do arquivo (nunca amplia os tipos de arquivo de uma entrada); a busca nunca sai da raiz do workspace, e a configuração de projeto de um diretório nunca se aplica a um diretório irmão. O passo **(1)** tem prioridade sobre um marcador de projeto: se os `fileGlobs` de uma entrada correspondem ao caminho, ela continua vencendo, então remova os globs de nível de projeto ao adotar `projectMarkers`; um glob `**/*.ts` remanescente continuará reivindicando esses arquivos. Estas regras regem o cliente stdio integrado; um provider do seam `ctx.lsp` montado decide seu próprio roteamento.
 
 ## Tools & surfaces
 
