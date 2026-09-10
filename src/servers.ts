@@ -1,7 +1,7 @@
 /**
  * Server configuration and routing: the `servers` table schema, load-time validation and
  * executable resolution, and the per-file routing that picks one server entry (glob patterns
- * first, then the extension map) plus its language id.
+ * first, then the file's nearest project marker, then the extension map) plus its language id.
  * @module dsh-lsp-actions/servers
  */
 
@@ -30,6 +30,14 @@ export interface LspServerEntry {
   extensionToLanguage: Record<string, string>
   /** Optional path globs (e.g. `src/**\/*.ts`); when a file matches, this entry wins over the extension map. */
   fileGlobs?: string[]
+  /**
+   * Optional project config files (plain file names, e.g. `["deno.json", "deno.jsonc"]`). The
+   * nearest ancestor directory of a routed file that holds one of these names claims the file for
+   * this entry, so sibling projects sharing an extension can use different servers without a
+   * hard-coded path rule. A marker only decides among entries that already map the file's
+   * extension, and `fileGlobs` still wins over it.
+   */
+  projectMarkers?: string[]
   /** Arguments passed to the executable (no shell). Default `[]`. */
   args?: string[]
   /** Extra env vars merged on top of the scrubbed ambient env. Default `{}`. */
@@ -100,6 +108,7 @@ export const LspServerEntry: z<LspServerEntry> = z.object({
   command: z.string().required(),
   extensionToLanguage: z.dict(String).required(),
   fileGlobs: z.array(String).default([]),
+  projectMarkers: z.array(String).default([]),
   args: z.array(String).default([]),
   env: z.dict(String).default({}),
   initializationOptions: z.any().default(null),
@@ -175,26 +184,37 @@ export async function resolveServers(
   const resolved: ResolvedServer[] = []
   for (const [serverId, entry] of Object.entries(servers)) {
     if (serverId.trim() === '') throw new Error('lsp-actions: server ids must be non-empty strings')
-    validateServerEntry(serverId, entry)
-    for (const glob of entry.fileGlobs) {
+    // A raw config handed straight to apply() (tests, programmatic mounting) may omit a field the
+    // schemastery schema would have defaulted: normalize the project markers before validating.
+    const resolvedEntry: ResolvedServerEntry = { ...entry, projectMarkers: entry.projectMarkers ?? [] }
+    validateServerEntry(serverId, resolvedEntry)
+    for (const glob of resolvedEntry.fileGlobs) {
       globToRegExp(glob) // throws on a malformed pattern at load, not at routing time
     }
-    const executable = await ctx.subprocess.resolveExecutable(entry.command, entry.env, signal)
-    resolved.push({ serverId, entry, executable })
+    const executable = await ctx.subprocess.resolveExecutable(resolvedEntry.command, resolvedEntry.env, signal)
+    resolved.push({ serverId, entry: resolvedEntry, executable })
   }
   return resolved
 }
 
 /**
- * Route one file to a server entry: entries with matching `fileGlobs` first, then entries whose
- * `extensionToLanguage` maps the file's extension, both in config order. A glob route uses the
- * file's own extension mapping when the entry maps it; the entry's first mapping is the fallback
- * only for files whose extension the glob — not the map — selected.
+ * Route one file to a server entry: entries with matching `fileGlobs` first, then the entry claimed
+ * by the file's nearest project marker, then entries whose `extensionToLanguage` maps the file's
+ * extension — every pass in config order. A glob route uses the file's own extension mapping when
+ * the entry maps it; the entry's first mapping is the fallback only for files whose extension the
+ * glob — not the map — selected. A project marker never widens a server's file types: it decides
+ * only among the entries that already map the file's extension.
  * @param servers - the resolved servers.
  * @param filePath - the source file path (absolute or workspace-relative).
+ * @param projectMarker - the nearest configured project marker governing `filePath` (see
+ *   `findProjectMarker`), when the servers table declares any.
  * @returns the route, or undefined when no entry handles the file.
  */
-export function routeFile(servers: readonly ResolvedServer[], filePath: string): ServerRoute | undefined {
+export function routeFile(
+  servers: readonly ResolvedServer[],
+  filePath: string,
+  projectMarker?: string,
+): ServerRoute | undefined {
   const normalized = filePath.replaceAll('\\', '/')
   const extension = finalExtension(filePath)
   for (const server of servers) {
@@ -203,6 +223,13 @@ export function routeFile(servers: readonly ResolvedServer[], filePath: string):
         const languageId = server.entry.extensionToLanguage[extension] ?? firstLanguageId(server)
         return { server, languageId }
       }
+    }
+  }
+  if (projectMarker !== undefined) {
+    for (const server of servers) {
+      if (!server.entry.projectMarkers.includes(projectMarker)) continue
+      const languageId = server.entry.extensionToLanguage[extension]
+      if (languageId !== undefined) return { server, languageId }
     }
   }
   for (const server of servers) {
@@ -290,6 +317,12 @@ function validateServerEntry(serverId: string, entry: ResolvedServerEntry): void
     }
     if (languageId.trim() === '') {
       throw new Error(`lsp-actions: servers.${serverId} maps extension "${extension}" to an empty language id`)
+    }
+  }
+  for (const marker of entry.projectMarkers) {
+    // A marker is probed as a plain file name inside each ancestor directory, never as a path.
+    if (marker.trim() === '' || marker.trim() !== marker || marker === '.' || marker === '..' || /[/\\]/u.test(marker)) {
+      throw new Error(`lsp-actions: servers.${serverId} lists an invalid project marker "${marker}" (plain file names only, e.g. "deno.json")`)
     }
   }
 }

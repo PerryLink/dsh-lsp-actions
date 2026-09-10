@@ -104,6 +104,10 @@ export {
   resolveServers,
 } from './servers.ts'
 export {
+  configuredProjectMarkers,
+  findProjectMarker,
+} from './project.ts'
+export {
   decodeTextEdits,
   negotiatePositionEncoding,
   normalizeCodeActions,
@@ -134,10 +138,11 @@ export const Config = ConfigSchema
 /**
  * Register the eight LSP action tools. Resolves every configured server executable at load (fail
  * loud on a missing command) before registering anything; tool, client, and server lifecycles are
- * effect-scoped, so disposal unregisters the tools and tears down every live server. The official
- * seam is resolved lazily per call (see the runner), so registration is independent of the seam's
- * load order; without servers and without a seam, calls fail loudly with `LSP_ACTION_UNAVAILABLE`
- * instead of the plugin silently contributing nothing.
+ * effect-scoped, so disposal unregisters the tools and tears down every live server. Files route
+ * by `fileGlobs`, then by the nearest project marker a server entry declares (`projectMarkers`),
+ * then by the extension map. The official seam is resolved lazily per call (see the runner), so
+ * registration is independent of the seam's load order; without servers and without a seam, calls
+ * fail loudly with `LSP_ACTION_UNAVAILABLE` instead of the plugin silently contributing nothing.
  * @param ctx - the plugin context (must inject `tools`, `fs`, `subprocess`).
  * @param config - the resolved plugin configuration.
  */
@@ -175,7 +180,9 @@ export async function apply(ctx: Context, config: ConfigType): Promise<void> {
   // apply-time snapshot — the seam may load after this plugin or be re-added mid-session.
   // Consumer — resolves the optional ctx.lsp seam lazily and drives the stdio client over ctx.subprocess/ctx.fs per call.
   const getSeam = (): SeamService | undefined => ctx.get('lsp') as unknown as SeamService | undefined
-  const runner = createActionRunner({ getSeam, client, servers })
+  // The fs seam drives project-marker routing: a file whose nearest ancestor holds a marker some
+  // entry declares (`projectMarkers`) is served by that entry instead of the extension default.
+  const runner = createActionRunner({ getSeam, client, servers, fs: ctx.fs })
 
   // Service Provider — registers the eight LSP action tools plus the optional editor JSON-RPC transport through a scoped ctx.effect.
   ctx.effect(() => {

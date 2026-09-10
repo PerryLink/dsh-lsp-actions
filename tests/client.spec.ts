@@ -38,6 +38,7 @@ function fixtureServer(
     command: process.execPath,
     extensionToLanguage: { '.ts': 'typescript' },
     fileGlobs: [],
+    projectMarkers: [],
     args: [FIXTURE, ...flags],
     env: {},
     initializationOptions: null,

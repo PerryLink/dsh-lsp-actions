@@ -79,7 +79,25 @@ dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 | `maxDocumentBytes` | `4000000` | दस्तावेज़-पठन सीमा (बाइट) |
 | `timeoutMs` | `60000` | प्रति-कॉल timeout, आधिकारिक timeout नीति द्वारा लागू |
 
-हर `servers` एंट्री एक `LspServerEntry` है: `command` (निष्पादन योग्य, लोड पर PATH में हल) और `extensionToLanguage` (`".ts"` → `typescript`) अनिवार्य हैं; वैकल्पिक `fileGlobs`, `args`, `env`, `initializationOptions`, `configuration`, `formattingOptions`, `maxMessageBytes`, `maxStderrBytes`, `killGraceMs`, `shutdownTimeoutMs`, `diagnosticsSettleMs`, `diagnosticsDebounceMs` और `idleTimeoutMs` (`0` = server प्रक्रिया को जीवित रखें) अंतर्निहित stdio क्लाइंट को ट्यून करते हैं।
+हर `servers` एंट्री एक `LspServerEntry` है: `command` (निष्पादन योग्य, लोड पर PATH में हल) और `extensionToLanguage` (`".ts"` → `typescript`) अनिवार्य हैं; वैकल्पिक `fileGlobs`, `projectMarkers`, `args`, `env`, `initializationOptions`, `configuration`, `formattingOptions`, `maxMessageBytes`, `maxStderrBytes`, `killGraceMs`, `shutdownTimeoutMs`, `diagnosticsSettleMs`, `diagnosticsDebounceMs` और `idleTimeoutMs` (`0` = server प्रक्रिया को जीवित रखें) अंतर्निहित stdio क्लाइंट को ट्यून करते हैं।
+
+रूटिंग नियतात्मक है और पूरी तरह कॉन्फ़िगरेशन से तय होती है। हर फ़ाइल पहला मेल इस क्रम में लेती है: **(1)** किसी एंट्री के `fileGlobs` उस पथ से मेल खाते हों; **(2)** फ़ाइल की डायरेक्टरी से workspace रूट तक ऊपर जाते हुए सबसे निकट वह डायरेक्टरी जिसमें किसी एंट्री के `projectMarkers` में सूचीबद्ध प्रोजेक्ट कॉन्फ़िग फ़ाइल मौजूद हो — और वह एंट्री फ़ाइल का एक्सटेंशन भी मैप करती हो; **(3)** कॉन्फ़िग क्रम में वह एंट्री जिसका `extensionToLanguage` फ़ाइल का एक्सटेंशन मैप करता हो। इसलिए एक ही workspace में `apps/node-app/{package.json,tsconfig.json,src/main.ts}` और `apps/deno-app/{deno.json,src/main.ts}` रखने पर हर `main.ts` अपने ही प्रोजेक्ट के server से सर्व होती है: कोई पथ-नियम बनाए रखने की ज़रूरत नहीं, और प्रोजेक्ट जोड़ने, नाम बदलने या हटाने पर कुछ भी बदलना नहीं पड़ता:
+
+```yaml
+servers:
+  typescript:
+    command: typescript-language-server
+    args: ["--stdio"]
+    extensionToLanguage: { ".ts": typescript, ".tsx": typescriptreact }
+    projectMarkers: ["package.json", "tsconfig.json"]
+  deno:
+    command: deno
+    args: ["lsp"]
+    extensionToLanguage: { ".ts": typescript, ".tsx": typescriptreact }
+    projectMarkers: ["deno.json", "deno.jsonc"]
+```
+
+प्रोजेक्ट मार्कर केवल उन्हीं servers में चुनाव करता है जो फ़ाइल का एक्सटेंशन पहले से मैप करते हैं (यह किसी एंट्री के फ़ाइल-प्रकार कभी नहीं बढ़ाता); खोज कभी workspace रूट से बाहर नहीं जाती, और किसी डायरेक्टरी का प्रोजेक्ट कॉन्फ़िग कभी उसकी सहोदर डायरेक्टरी पर लागू नहीं होता। ये नियम अंतर्निहित stdio क्लाइंट पर लागू हैं; माउंट किया गया `ctx.lsp` seam provider अपनी रूटिंग स्वयं तय करता है।
 
 ## Tools & surfaces
 

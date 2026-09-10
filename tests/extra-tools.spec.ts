@@ -19,6 +19,7 @@ const config = {
       args: [FIXTURE],
       extensionToLanguage: { '.ts': 'typescript' },
       fileGlobs: [],
+      projectMarkers: [],
       env: {},
       initializationOptions: null,
       configuration: null,

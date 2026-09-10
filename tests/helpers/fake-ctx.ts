@@ -5,7 +5,7 @@
  * to run against real bytes without mounting the full harness.
  */
 
-import { mkdtemp, readFile, realpath, rm, stat as nodeStat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, stat as nodeStat, lstat as nodeLstat, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve as resolvePath, sep } from 'node:path'
@@ -166,6 +166,20 @@ export class FakeFs {
       return {
         version: FsVersion(`v${info.mtimeMs}-${info.size}`),
         type: info.isDirectory() ? 'directory' : 'file',
+        size: info.size,
+      }
+    } catch {
+      return undefined
+    }
+  }
+
+  /** The seam's path-shaped probe: `undefined` for an absent path, without following a final symlink. */
+  async lstat(path: string, opts?: { cwd?: string }, _signal?: AbortSignal): Promise<{ version: ReturnType<typeof FsVersion>; type: 'file' | 'directory' | 'symlink' | 'other'; size?: number } | undefined> {
+    try {
+      const info = await nodeLstat(resolvePath(opts?.cwd ?? this.root, path))
+      return {
+        version: FsVersion(`v${info.mtimeMs}-${info.size}`),
+        type: info.isSymbolicLink() ? 'symlink' : info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'other',
         size: info.size,
       }
     } catch {

@@ -7,11 +7,17 @@ import type { HostSource } from '../src/host.ts'
 import { FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import { LspActionError } from '../src/vocabulary.ts'
 
-function server(id: string, globs: string[] = [], extensions: Record<string, string> = { '.ts': 'typescript' }): ResolvedServer {
+function server(
+  id: string,
+  globs: string[] = [],
+  extensions: Record<string, string> = { '.ts': 'typescript' },
+  projectMarkers: string[] = [],
+): ResolvedServer {
   const entry: ResolvedServerEntry = {
     command: 'node',
     extensionToLanguage: extensions,
     fileGlobs: globs,
+    projectMarkers: [...projectMarkers],
     args: [],
     env: {},
     initializationOptions: null,

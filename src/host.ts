@@ -160,17 +160,29 @@ function foldFileUri(uri: string): string {
 
 /**
  * The workspace-relative path one document URI points at, when the URI lies under the canonical
- * workspace URI. Servers re-spell the root URI sent at `initialize` (lowercase drive letters and
- * percent-encoded colons on Windows, a trailing slash on either side), so containment is judged on
- * decoded, case-insensitive forms while the relative path itself is sliced from the decoded URI —
- * a normalized string can differ in length from the raw one, which would shift the cut.
+ * workspace URI.
  * @param workspace - the canonical workspace.
  * @param uri - the document URI the server named.
  * @returns the relative path (`.` for the workspace root itself), or undefined when the URI does
  *   not fall under the workspace.
  */
 export function workspaceRelativePath(workspace: HostWorkspace, uri: string): string | undefined {
-  const root = decodeFileUri(workspace.fileUrl)
+  return relativeUnderRootUri(workspace.fileUrl, uri)
+}
+
+/**
+ * The `/`-separated path one document URI points at under a root URI. Servers re-spell the root
+ * URI sent at `initialize` (lowercase drive letters and percent-encoded colons on Windows, a
+ * trailing slash on either side), so containment is judged on decoded, case-insensitive forms
+ * while the relative path itself is sliced from the decoded URI — a normalized string can differ
+ * in length from the raw one, which would shift the cut.
+ * @param rootUri - canonical URI of the containing root (workspace, project, …).
+ * @param uri - the document URI to relativize.
+ * @returns the relative, `/`-separated path (`.` for the root itself), or undefined when the URI
+ *   does not fall under `rootUri`.
+ */
+export function relativeUnderRootUri(rootUri: string, uri: string): string | undefined {
+  const root = decodeFileUri(rootUri)
   const decoded = decodeFileUri(uri)
   const identity = (candidate: string): string => process.platform === 'win32' ? candidate.toLowerCase() : candidate
   if (identity(decoded) === identity(root)) return '.'

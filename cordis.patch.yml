@@ -1,6 +1,11 @@
 # LSP action surface: diagnostics, formatting, completion, code actions, symbols, signature
 # help, inlay hints, and rename over language servers.
 # Default config activates no servers (empty table); add one entry per language server.
+# Each servers entry: command + extensionToLanguage (required); optional fileGlobs (path rules),
+# projectMarkers (project config file names — e.g. ["deno.json","deno.jsonc"] or
+# ["package.json","tsconfig.json"] — a file routes to the entry owning its nearest ancestor
+# marker, so sibling projects sharing an extension can use different servers), args, env,
+# initializationOptions, configuration, formattingOptions, and the client's bound/timer keys.
 # editor.enabled: false keeps the IDE integration backend off (Web/CLI profiles own stdio);
 # enable it only in a dedicated headless backend composition (see examples/vscode/backend).
 - insert:

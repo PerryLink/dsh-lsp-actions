@@ -45,6 +45,7 @@ function tslsEntry(): ResolvedServerEntry {
     args: [TSLS, '--stdio'],
     extensionToLanguage: { '.ts': 'typescript' },
     fileGlobs: [],
+    projectMarkers: [],
     env: {},
     initializationOptions: null,
     configuration: null,

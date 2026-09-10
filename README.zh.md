@@ -79,7 +79,25 @@ dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 | `maxDocumentBytes` | `4000000` | 文档读取上限（字节数） |
 | `timeoutMs` | `60000` | 每次调用的超时，由官方 timeout 策略执行 |
 
-每个 `servers` 条目都是一个 `LspServerEntry`：`command`（可执行文件，加载期在 PATH 上解析）与 `extensionToLanguage`（`".ts"` → `typescript`）为必填；可选的 `fileGlobs`、`args`、`env`、`initializationOptions`、`configuration`、`formattingOptions`、`maxMessageBytes`、`maxStderrBytes`、`killGraceMs`、`shutdownTimeoutMs`、`diagnosticsSettleMs`、`diagnosticsDebounceMs` 与 `idleTimeoutMs`（`0` = 保持服务器进程存活）用于调校内置 stdio 客户端。
+每个 `servers` 条目都是一个 `LspServerEntry`：`command`（可执行文件，加载期在 PATH 上解析）与 `extensionToLanguage`（`".ts"` → `typescript`）为必填；可选的 `fileGlobs`、`projectMarkers`、`args`、`env`、`initializationOptions`、`configuration`、`formattingOptions`、`maxMessageBytes`、`maxStderrBytes`、`killGraceMs`、`shutdownTimeoutMs`、`diagnosticsSettleMs`、`diagnosticsDebounceMs` 与 `idleTimeoutMs`（`0` = 保持服务器进程存活）用于调校内置 stdio 客户端。
+
+路由是确定性的，且完全由配置决定。每个文件按以下顺序取第一个命中：**(1)** 某条目的 `fileGlobs` 匹配该路径；**(2)** 从文件所在目录向上走到工作区根，最近的、含有某个条目 `projectMarkers` 所列工程配置文件的目录——且该条目同时映射该文件的扩展名；**(3)** 按配置顺序，`extensionToLanguage` 映射该扩展名的条目。因此同一工作区内的 `apps/node-app/{package.json,tsconfig.json,src/main.ts}` 与 `apps/deno-app/{deno.json,src/main.ts}` 会各自用本工程的服务器处理 `main.ts`：无需维护任何路径规则，新增、改名或移动工程也不必改动配置：
+
+```yaml
+servers:
+  typescript:
+    command: typescript-language-server
+    args: ["--stdio"]
+    extensionToLanguage: { ".ts": typescript, ".tsx": typescriptreact }
+    projectMarkers: ["package.json", "tsconfig.json"]
+  deno:
+    command: deno
+    args: ["lsp"]
+    extensionToLanguage: { ".ts": typescript, ".tsx": typescriptreact }
+    projectMarkers: ["deno.json", "deno.jsonc"]
+```
+
+工程标记只在该文件扩展名已被若干服务器映射的前提下做选择（绝不会扩大某个服务器的文件类型范围）；向上查找永不越过工作区根；某个目录里的工程配置绝不会作用于同级目录。以上规则作用于内置 stdio 客户端；挂载的 `ctx.lsp` seam provider 自行决定路由。
 
 ## Tools & surfaces
 

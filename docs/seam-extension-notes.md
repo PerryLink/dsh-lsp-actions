@@ -58,7 +58,7 @@
 | `lsp_format` 写入过 fs 意图事件与权限检查 | 读后 `fs/observed`（present+version）→ `fs/write-intent` waterfall 取意图 → `ctx.fs.writeText(..., intent, signal, sandboxPolicy)` → 写后 `fs/observed` |
 | read-only sandbox 拒绝写入（fail loud 结构化） | 见下 §4.1 |
 | 诊断/补全不落持久层、不跨会话缓存 | 工具结果只进会话日志（模型历史本身）；无任何磁盘/内存缓存；不提供 cache 开关（更严格地满足"除非 Config 显式开启"） |
-| `servers` 配置形态与官方对齐 | `command`/`args`/`env`/`extensionToLanguage`/`initializationOptions`/`configuration`/字节上限/计时器字段与 `lsp-stdio` 同名同默认；另加 `fileGlobs`（glob 优先于扩展名）与 `formattingOptions`/`diagnosticsSettleMs`；`maxDocumentBytes` 因读取发生在上具层而提升为插件级 Config（文档已注明偏差） |
+| `servers` 配置形态与官方对齐 | `command`/`args`/`env`/`extensionToLanguage`/`initializationOptions`/`configuration`/字节上限/计时器字段与 `lsp-stdio` 同名同默认；另加 `fileGlobs`（glob 优先于扩展名）、`projectMarkers`（按目标文件最近的祖先工程配置文件路由：`deno.json`/`deno.jsonc` → Deno、`package.json`/`tsconfig.json` → TypeScript 等，见 `src/project.ts`；优先于扩展名、次于 glob，范围以 workspace 根为界）与 `formattingOptions`/`diagnosticsSettleMs`；`maxDocumentBytes` 因读取发生在上具层而提升为插件级 Config（文档已注明偏差） |
 
 ### 4.1 权限矩阵（`lsp_format` / `lsp_rename`）
 

@@ -176,6 +176,7 @@ const servers = await resolveServers(ctx, {
     args: [FIXTURE],
     extensionToLanguage: { '.ts': 'typescript' },
     fileGlobs: [],
+    projectMarkers: [],
     env: {},
     initializationOptions: null,
     configuration: null,

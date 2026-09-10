@@ -79,7 +79,25 @@ Todos los ajustes son campos Schemastery `Config` (modificables desde cordis.yml
 | `maxDocumentBytes` | `4000000` | Tope de lectura de documento (bytes) |
 | `timeoutMs` | `60000` | Timeout por llamada, aplicado por la política oficial de timeout |
 
-Cada entrada de `servers` es un `LspServerEntry`: `command` (ejecutable resuelto en PATH al cargar) y `extensionToLanguage` (`".ts"` → `typescript`) son obligatorios; los opcionales `fileGlobs`, `args`, `env`, `initializationOptions`, `configuration`, `formattingOptions`, `maxMessageBytes`, `maxStderrBytes`, `killGraceMs`, `shutdownTimeoutMs`, `diagnosticsSettleMs`, `diagnosticsDebounceMs` e `idleTimeoutMs` (`0` = mantener vivo el proceso del servidor) ajustan el cliente stdio integrado.
+Cada entrada de `servers` es un `LspServerEntry`: `command` (ejecutable resuelto en PATH al cargar) y `extensionToLanguage` (`".ts"` → `typescript`) son obligatorios; los opcionales `fileGlobs`, `projectMarkers`, `args`, `env`, `initializationOptions`, `configuration`, `formattingOptions`, `maxMessageBytes`, `maxStderrBytes`, `killGraceMs`, `shutdownTimeoutMs`, `diagnosticsSettleMs`, `diagnosticsDebounceMs` e `idleTimeoutMs` (`0` = mantener vivo el proceso del servidor) ajustan el cliente stdio integrado.
+
+El enrutado es determinista y se rige por la configuración. Cada archivo toma la primera coincidencia de: **(1)** una entrada de `servers` cuyos `fileGlobs` coincidan con la ruta; **(2)** el directorio ancestro más cercano —subiendo hasta la raíz del workspace— que contenga un archivo de configuración de proyecto declarado en los `projectMarkers` de alguna entrada, evaluado solo entre las entradas que además mapean la extensión del archivo; **(3)** la entrada cuyo `extensionToLanguage` mapea la extensión del archivo, en orden de configuración. Así, un workspace con `apps/node-app/{package.json,tsconfig.json,src/main.ts}` y `apps/deno-app/{deno.json,src/main.ts}` sirve cada `main.ts` con el servidor de su propio proyecto: sin reglas de ruta que mantener y sin cambios al añadir, renombrar o mover un proyecto:
+
+```yaml
+servers:
+  typescript:
+    command: typescript-language-server
+    args: ["--stdio"]
+    extensionToLanguage: { ".ts": typescript, ".tsx": typescriptreact }
+    projectMarkers: ["package.json", "tsconfig.json"]
+  deno:
+    command: deno
+    args: ["lsp"]
+    extensionToLanguage: { ".ts": typescript, ".tsx": typescriptreact }
+    projectMarkers: ["deno.json", "deno.jsonc"]
+```
+
+Un marcador de proyecto solo decide entre servidores que ya mapean la extensión del archivo (nunca amplía los tipos de archivo de una entrada); la búsqueda nunca sale de la raíz del workspace, y la configuración de proyecto de un directorio nunca se aplica a un directorio hermano. Estas reglas rigen el cliente stdio integrado; un provider del seam `ctx.lsp` montado decide su propio enrutado.
 
 ## Tools & surfaces
 

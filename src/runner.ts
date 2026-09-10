@@ -9,10 +9,12 @@
 
 import { LspActionClient } from './client.ts'
 import type { ActionRequest } from './client.ts'
+import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import type { HostSource } from './host.ts'
 import { finalExtension } from './extension.ts'
+import { configuredProjectMarkers, findProjectMarker } from './project.ts'
 import { firstLanguageId, routeFile } from './servers.ts'
-import type { ResolvedServer } from './servers.ts'
+import type { ResolvedServer, ServerRoute } from './servers.ts'
 import { trySeamAction } from './seam.ts'
 import type { SeamExtras, SeamService } from './seam.ts'
 import type {
@@ -69,105 +71,108 @@ export interface ActionRunner {
 /**
  * Create the seam-first action runner. The seam is resolved through `getSeam` on every call, not
  * captured at apply time, so the plugin serves through a seam that loads after it or is re-added
- * later; a seam that is absent at call time falls back to the own client.
- * @param options - the per-call seam resolver, the own client, and the resolved server table.
+ * later; a seam that is absent at call time falls back to the own client. When an `fs` seam is
+ * supplied, a file whose nearest project marker is claimed by a server entry routes to that entry
+ * before the plain extension map applies (see `findProjectMarker`).
+ * @param options - the per-call seam resolver, the own client, the resolved server table, and the
+ *   optional filesystem used for project-marker routing.
  * @returns the runner facade.
  */
 export function createActionRunner(options: {
   readonly getSeam: () => SeamService | undefined
   readonly client: LspActionClient
   readonly servers: readonly ResolvedServer[]
+  /** Filesystem used to detect each file's project marker; omit to route by globs/extensions only. */
+  readonly fs?: FileSystem
 }): ActionRunner {
-  return {
-    diagnostics: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'diagnostics', request, signal),
-    formatDocument: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'formatDocument', request, signal),
-    completion: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'completion', request, signal),
-    codeActions: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'codeAction', request, signal),
-    workspaceSymbols: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'workspaceSymbol', request, signal),
-    documentSymbols: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'documentSymbol', request, signal),
-    signatureHelp: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'signatureHelp', request, signal),
-    inlayHints: (request, signal) => runOp({ ...options, seam: options.getSeam() }, 'inlayHint', request, signal),
-    rename: (request, newName, signal) => renameOp({ ...options, seam: options.getSeam() }, request, newName, signal),
+  const markers = options.fs === undefined ? [] : configuredProjectMarkers(options.servers)
+  const fs = options.fs
+  const collaborators: Omit<RunnerOptions, 'seam'> = {
+    client: options.client,
+    servers: options.servers,
+    projectMarker: fs === undefined || markers.length === 0
+      ? noProjectMarker
+      : (filePath, workspaceRoot, signal) => findProjectMarker(fs, markers, filePath, workspaceRoot, signal),
   }
+  return {
+    diagnostics: (request, signal) => runOp({ ...collaborators, seam: options.getSeam() }, 'diagnostics', request, signal),
+    formatDocument: (request, signal) => runOp({ ...collaborators, seam: options.getSeam() }, 'formatDocument', request, signal),
+    completion: (request, signal) => runOp({ ...collaborators, seam: options.getSeam() }, 'completion', request, signal),
+    codeActions: (request, signal) => runOp({ ...collaborators, seam: options.getSeam() }, 'codeAction', request, signal),
+    workspaceSymbols: (request, signal) => runOp({ ...collaborators, seam: options.getSeam() }, 'workspaceSymbol', request, signal),
+    documentSymbols: (request, signal) => runOp({ ...collaborators, seam: options.getSeam() }, 'documentSymbol', request, signal),
+    signatureHelp: (request, signal) => runOp({ ...collaborators, seam: options.getSeam() }, 'signatureHelp', request, signal),
+    inlayHints: (request, signal) => runOp({ ...collaborators, seam: options.getSeam() }, 'inlayHint', request, signal),
+    rename: (request, newName, signal) => renameOp({ ...collaborators, seam: options.getSeam() }, request, newName, signal),
+  }
+}
+
+/** The per-call collaborators every operation runs with: the resolved seam plus the runner's own deps. */
+interface RunnerOptions {
+  /** The seam resolved for this call (`undefined` when absent or not serving actions). */
+  readonly seam: SeamService | undefined
+  readonly client: LspActionClient
+  readonly servers: readonly ResolvedServer[]
+  /** The target file's governing project marker, or undefined when the table declares none. */
+  readonly projectMarker: (filePath: string, workspaceRoot: string, signal?: AbortSignal) => Promise<string | undefined>
+}
+
+/** The project resolver used when no server entry declares a marker (no filesystem access at all). */
+async function noProjectMarker(): Promise<string | undefined> {
+  return undefined
+}
+
+/** The route for one request: the nearest claimed project marker decides, then globs/extensions. */
+async function routeForFile(options: RunnerOptions, request: RunnerRequest, signal?: AbortSignal): Promise<ServerRoute | undefined> {
+  const projectMarker = await options.projectMarker(request.filePath, request.workspaceRoot, signal)
+  return routeFile(options.servers, request.filePath, projectMarker)
 }
 
 /** Serve one action: seam first, then the own client, failing loud where fallback is wrong. */
 async function runOp(
-  options: {
-    readonly seam: SeamService | undefined
-    readonly client: LspActionClient
-    readonly servers: readonly ResolvedServer[]
-  },
+  options: RunnerOptions,
   operation: 'diagnostics',
   request: RunnerRequest,
   signal?: AbortSignal,
 ): Promise<LspDiagnosticsResult>
 async function runOp(
-  options: {
-    readonly seam: SeamService | undefined
-    readonly client: LspActionClient
-    readonly servers: readonly ResolvedServer[]
-  },
+  options: RunnerOptions,
   operation: 'formatDocument',
   request: RunnerRequest,
   signal?: AbortSignal,
 ): Promise<LspEditsResult>
 async function runOp(
-  options: {
-    readonly seam: SeamService | undefined
-    readonly client: LspActionClient
-    readonly servers: readonly ResolvedServer[]
-  },
+  options: RunnerOptions,
   operation: 'completion',
   request: RunnerRequest,
   signal?: AbortSignal,
 ): Promise<LspCompletionResult>
 async function runOp(
-  options: {
-    readonly seam: SeamService | undefined
-    readonly client: LspActionClient
-    readonly servers: readonly ResolvedServer[]
-  },
+  options: RunnerOptions,
   operation: 'codeAction',
   request: RunnerRequest,
   signal?: AbortSignal,
 ): Promise<LspCodeActionsResult>
 async function runOp(
-  options: {
-    readonly seam: SeamService | undefined
-    readonly client: LspActionClient
-    readonly servers: readonly ResolvedServer[]
-  },
+  options: RunnerOptions,
   operation: 'workspaceSymbol' | 'documentSymbol',
   request: RunnerRequest,
   signal?: AbortSignal,
 ): Promise<LspSymbolsResult>
 async function runOp(
-  options: {
-    readonly seam: SeamService | undefined
-    readonly client: LspActionClient
-    readonly servers: readonly ResolvedServer[]
-  },
+  options: RunnerOptions,
   operation: 'signatureHelp',
   request: RunnerRequest,
   signal?: AbortSignal,
 ): Promise<LspSignaturesResult>
 async function runOp(
-  options: {
-    readonly seam: SeamService | undefined
-    readonly client: LspActionClient
-    readonly servers: readonly ResolvedServer[]
-  },
+  options: RunnerOptions,
   operation: 'inlayHint',
   request: RunnerRequest,
   signal?: AbortSignal,
 ): Promise<LspInlayHintsResult>
 async function runOp(
-  options: {
-    readonly seam: SeamService | undefined
-    readonly client: LspActionClient
-    readonly servers: readonly ResolvedServer[]
-  },
+  options: RunnerOptions,
   operation: 'diagnostics' | 'formatDocument' | 'completion' | 'codeAction' | 'workspaceSymbol' | 'documentSymbol' | 'signatureHelp' | 'inlayHint',
   request: RunnerRequest,
   signal?: AbortSignal,
@@ -196,7 +201,8 @@ async function runOp(
   }
   // Workspace symbol search has no document to route by: when no entry matches (or no file path
   // was supplied), fall back to the first configured server.
-  const route = routeFile(options.servers, request.filePath) ?? firstServerRoute(options.servers, operation)
+  const routed = await routeForFile(options, request, signal)
+  const route = routed ?? firstServerRoute(options.servers, operation)
   if (route === undefined) {
     throw new LspActionError(noRouteMessage(request.filePath), 'LSP_ACTION_UNAVAILABLE')
   }
@@ -259,11 +265,7 @@ function extrasFor(operation: string, request: RunnerRequest): SeamExtras {
  * serves it — any current seam vintage falls back), then the plugin's own client.
  */
 async function renameOp(
-  options: {
-    readonly seam: SeamService | undefined
-    readonly client: LspActionClient
-    readonly servers: readonly ResolvedServer[]
-  },
+  options: RunnerOptions,
   request: RunnerRequest,
   newName: string,
   signal?: AbortSignal,
@@ -294,7 +296,7 @@ async function renameOp(
       // plugin's own client, which fails loud itself when no entry handles the file.
     }
   }
-  const route = routeFile(options.servers, request.filePath)
+  const route = await routeForFile(options, request, signal)
   if (route === undefined) {
     throw new LspActionError(noRouteMessage(request.filePath), 'LSP_ACTION_UNAVAILABLE')
   }

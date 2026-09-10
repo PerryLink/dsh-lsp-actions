@@ -17,6 +17,7 @@ function serverEntry(command: string, extensionToLanguage: Record<string, string
     command,
     extensionToLanguage,
     fileGlobs: [],
+    projectMarkers: [],
     args: [],
     env: {},
     initializationOptions: null,
@@ -170,6 +171,25 @@ describe('lsp-actions apply', () => {
       ...baseConfig,
       servers: { bad: serverEntry(process.execPath, { '.ts': '' }) },
     })).rejects.toThrow(/empty language id/)
+  })
+
+  it('defaults every server entry to no project markers', () => {
+    const resolved = Config({ servers: { ts: { command: 'typescript-language-server', extensionToLanguage: { '.ts': 'typescript' } } } })
+    expect(resolved.servers.ts.projectMarkers).toEqual([])
+  })
+
+  it('rejects a project marker that is a path rather than a file name at load', async () => {
+    await expect(apply(fake.ctx as never, {
+      ...baseConfig,
+      servers: { bad: serverEntry(process.execPath, { '.ts': 'typescript' }, { projectMarkers: ['apps/deno.json'] }) },
+    })).rejects.toThrow(/lists an invalid project marker/)
+  })
+
+  it('rejects an empty project marker at load', async () => {
+    await expect(apply(fake.ctx as never, {
+      ...baseConfig,
+      servers: { bad: serverEntry(process.execPath, { '.ts': 'typescript' }, { projectMarkers: [''] }) },
+    })).rejects.toThrow(/lists an invalid project marker/)
   })
 
   it('serves a real end-to-end diagnostics call through the assembled plugin', async () => {

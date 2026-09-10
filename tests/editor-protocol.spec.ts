@@ -38,6 +38,7 @@ function fullServerEntry(command: string, extensionToLanguage: Record<string, st
     command,
     extensionToLanguage,
     fileGlobs: [],
+    projectMarkers: [],
     args,
     env: {},
     initializationOptions: null,

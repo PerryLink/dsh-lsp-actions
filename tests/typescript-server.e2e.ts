@@ -63,6 +63,7 @@ describe.skipIf(!tslsAvailable)('typescript-language-server end-to-end', () => {
         args: [TSLS, '--stdio'],
         extensionToLanguage: { '.ts': 'typescript' },
         fileGlobs: [],
+        projectMarkers: [],
         env: {},
         initializationOptions: null,
         configuration: null,

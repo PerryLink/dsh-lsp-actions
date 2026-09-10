@@ -80,7 +80,25 @@ All tunables are Schemastery `Config` fields (changeable from cordis.yml). An id
 | `maxDocumentBytes` | `4000000` | Document-read cap (bytes) |
 | `timeoutMs` | `60000` | Per-call timeout, enforced by the official timeout policy |
 
-Each `servers` entry is an `LspServerEntry`: `command` (executable resolved on PATH at load) and `extensionToLanguage` (`".ts"` → `typescript`) are required; optional `fileGlobs`, `args`, `env`, `initializationOptions`, `configuration`, `formattingOptions`, `maxMessageBytes`, `maxStderrBytes`, `killGraceMs`, `shutdownTimeoutMs`, `diagnosticsSettleMs`, `diagnosticsDebounceMs`, and `idleTimeoutMs` (`0` = keep the server process alive) tune the built-in stdio client.
+Each `servers` entry is an `LspServerEntry`: `command` (executable resolved on PATH at load) and `extensionToLanguage` (`".ts"` → `typescript`) are required; optional `fileGlobs`, `projectMarkers`, `args`, `env`, `initializationOptions`, `configuration`, `formattingOptions`, `maxMessageBytes`, `maxStderrBytes`, `killGraceMs`, `shutdownTimeoutMs`, `diagnosticsSettleMs`, `diagnosticsDebounceMs`, and `idleTimeoutMs` (`0` = keep the server process alive) tune the built-in stdio client.
+
+Routing is deterministic and configuration-driven. Every file takes the first match from: **(1)** a server entry whose `fileGlobs` match the path; **(2)** the nearest ancestor directory — walking up to the workspace root — that holds a project config file listed in some entry's `projectMarkers`, matched against the entries that also map the file's extension; **(3)** the entry whose `extensionToLanguage` maps the file's extension, in config order. A workspace holding `apps/node-app/{package.json,tsconfig.json,src/main.ts}` and `apps/deno-app/{deno.json,src/main.ts}` therefore serves each `main.ts` from its own project's server, with no path rule to maintain and nothing to change when a project is added, renamed, or moved:
+
+```yaml
+servers:
+  typescript:
+    command: typescript-language-server
+    args: ["--stdio"]
+    extensionToLanguage: { ".ts": typescript, ".tsx": typescriptreact }
+    projectMarkers: ["package.json", "tsconfig.json"]
+  deno:
+    command: deno
+    args: ["lsp"]
+    extensionToLanguage: { ".ts": typescript, ".tsx": typescriptreact }
+    projectMarkers: ["deno.json", "deno.jsonc"]
+```
+
+A project marker only decides among servers that already map the file's extension (it never widens an entry's file types); the walk never leaves the workspace root, and a project config in one directory never applies to a sibling directory. These rules govern the built-in stdio client — a mounted `ctx.lsp` seam provider decides its own routing.
 
 ## Tools & surfaces
 

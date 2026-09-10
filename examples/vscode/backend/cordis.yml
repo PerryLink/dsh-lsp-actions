@@ -50,4 +50,7 @@
         args: [--stdio]
         extensionToLanguage:
           ".ts": typescript
+        # Project-config routing: a file whose nearest ancestor holds one of these markers is
+        # served here even when another entry also maps the extension (see the README).
+        projectMarkers: [package.json, tsconfig.json]
         formattingOptions: { tabSize: 2, insertSpaces: true }
