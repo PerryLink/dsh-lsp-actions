@@ -5,6 +5,10 @@ All notable changes to dsh-lsp-actions are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The release workflow now creates the GitHub Release itself, with the body taken from this version's CHANGELOG section. Until now a `v*` tag published to npm and stopped there, so every Release page had to be created by hand afterwards.
+
 ## [0.5.0] - 2026-09-10
 
 
