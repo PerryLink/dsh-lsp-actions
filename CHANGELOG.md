@@ -3,6 +3,21 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.2] - 2026-09-18
+
+### Fixed
+
+- A mount disposed inside the executable probe — the widest async window in the plugin (PATH lookups plus `--version` spawns) — no longer reaches the tool registration effect. The apply frame captures the fiber generation before the probe and registers nothing when it changed, so an unload/reload round trip can no longer create registrations against a dead fiber (`INACTIVE_EFFECT`) or leave the eight tools missing on the remount.
+
+### Added
+
+- `dsh.manifestVersion: 1` and the canonical three-clause `engines.dsh` range.
+
+### Internal
+
+- The mounted seam's vintage is recorded from the first real action attempt and cached per seam instance: the published four-operation seam rejects an action with a code-less error, and that `legacy` answer now skips the guaranteed-failing query on every later call. New `probeSeamVintage` / `classifySeamAttempt` exports (`src/seam.ts`) carry the classification as an asserted invariant.
+- `verify:artifacts` now fails when the published `ctx.lsp` seam gains an action operation or stops documenting "exactly the four operations" — that is the signal to dismantle the plugin's own LSP client instead of shipping a duplicate stack. No user-visible behavior change.
+
 ## [0.5.1] - 2026-09-12
 
 ### Changed

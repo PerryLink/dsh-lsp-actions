@@ -16,7 +16,20 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "paths": {
+      "@deepseek-ai/cordis": ["../../../../deepseek-harness/vendor/cordis/lib/types/index.d.ts"],
+      "@deepseek-ai/schemastery": ["../../../../deepseek-harness/vendor/schemastery/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-agent": ["../../../../deepseek-harness/packages/core/agent/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-fs": ["../../../../deepseek-harness/packages/fs/fs/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-llm": ["../../../../deepseek-harness/packages/llm/llm/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-lsp": ["../../../../deepseek-harness/packages/lsp/lsp/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-sandbox": ["../../../../deepseek-harness/packages/sandbox/sandbox/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-sandbox-policy": ["../../../../deepseek-harness/packages/sandbox/sandbox-policy/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-subprocess": ["../../../../deepseek-harness/packages/subprocess/subprocess/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-timeout": ["../../../../deepseek-harness/packages/util/timeout/lib/types/index.d.ts"],
+      "@deepseek-ai/dsh-tools": ["../../../../deepseek-harness/packages/core/tools/lib/types/index.d.ts"]
+    }
   },
   "include": ["src"],
   "exclude": ["node_modules", "lib", "tests"]

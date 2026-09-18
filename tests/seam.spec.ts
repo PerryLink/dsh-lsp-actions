@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { trySeamAction } from '../src/seam.ts'
+import { classifySeamAttempt, probeSeamVintage, trySeamAction } from '../src/seam.ts'
 import type { SeamService } from '../src/seam.ts'
 
 /** An error carrying a stable seam-style code, without depending on the seam's error class. */
@@ -79,5 +79,51 @@ describe('trySeamAction classification', () => {
     } as unknown as SeamService
     await trySeamAction(seam, 'diagnostics', 'a.ts', '/ws', undefined, undefined)
     expect(seen[0]).toEqual({ operation: 'diagnostics', filePath: 'a.ts', workspaceRoot: '/ws' })
+  })
+})
+
+describe('probeSeamVintage (the asserted seam-vintage invariant)', () => {
+  it("answers 'absent' when no seam is mounted", async () => {
+    expect(await probeSeamVintage(undefined, 'a.ts', '/ws')).toBe('absent')
+  })
+
+  it("answers 'legacy' for a four-operation seam that rejects an action with a code-less error", async () => {
+    const seen: unknown[] = []
+    const seam = {
+      query: async (queryRequest: unknown) => {
+        seen.push(queryRequest)
+        throw new Error('unreachable operation')
+      },
+    } as unknown as SeamService
+    expect(await probeSeamVintage(seam, 'a.ts', '/ws')).toBe('legacy')
+    // The probe uses documentSymbol: path-only, so it neither demands a position nor walks a range.
+    expect(seen[0]).toEqual({ operation: 'documentSymbol', filePath: 'a.ts', workspaceRoot: '/ws' })
+  })
+
+  it("answers 'unsupported' when the seam knows the vocabulary but declines the operation", async () => {
+    const seam = {
+      query: async () => { throw Object.assign(new Error('no provider'), { code: 'LSP_UNSUPPORTED_OPERATION' }) },
+    } as unknown as SeamService
+    expect(await probeSeamVintage(seam, 'a.ts', '/ws')).toBe('unsupported')
+  })
+
+  it("answers 'actions' when the seam serves the probe", async () => {
+    const seam = { query: async () => ({ kind: 'documentSymbol', symbols: [] }) } as unknown as SeamService
+    expect(await probeSeamVintage(seam, 'a.ts', '/ws')).toBe('actions')
+  })
+
+  it("answers 'actions' when the seam understands the vocabulary and reports the file unavailable", async () => {
+    const seam = {
+      query: async () => { throw Object.assign(new Error('no provider for file'), { code: 'LSP_UNAVAILABLE' }) },
+    } as unknown as SeamService
+    expect(await probeSeamVintage(seam, 'a.ts', '/ws')).toBe('actions')
+  })
+
+  it('classifySeamAttempt maps every attempt reason onto its vintage', () => {
+    expect(classifySeamAttempt({ ok: true, result: { kind: 'diagnostics', diagnostics: [] } })).toBe('actions')
+    expect(classifySeamAttempt({ ok: false, reason: 'legacy' })).toBe('legacy')
+    expect(classifySeamAttempt({ ok: false, reason: 'unsupported' })).toBe('unsupported')
+    expect(classifySeamAttempt({ ok: false, reason: 'unavailable' })).toBe('actions')
+    expect(classifySeamAttempt({ ok: false, reason: 'error', error: new Error('x') })).toBe('actions')
   })
 })

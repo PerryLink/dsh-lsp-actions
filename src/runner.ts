@@ -15,8 +15,8 @@ import { finalExtension } from './extension.ts'
 import { configuredProjectMarkers, findProjectMarker } from './project.ts'
 import { firstLanguageId, routeFile } from './servers.ts'
 import type { ResolvedServer, ServerRoute } from './servers.ts'
-import { trySeamAction } from './seam.ts'
-import type { SeamExtras, SeamService } from './seam.ts'
+import { classifySeamAttempt, trySeamAction } from './seam.ts'
+import type { SeamAttempt, SeamExtras, SeamService, SeamVintage } from './seam.ts'
 import type {
   LspActionResult,
   LspCodeActionsResult,
@@ -87,9 +87,18 @@ export function createActionRunner(options: {
 }): ActionRunner {
   const markers = options.fs === undefined ? [] : configuredProjectMarkers(options.servers)
   const fs = options.fs
+  // Seam vintages are cached per seam INSTANCE, not per runner: the contract allows a seam to load
+  // after this plugin or be re-added mid-session, and a fresh seam object deserves a fresh record.
+  const vintages = new WeakMap<SeamService, Exclude<SeamVintage, 'absent'>>()
+  const seamVintageOf = (seam: SeamService): Exclude<SeamVintage, 'absent'> | undefined => vintages.get(seam)
+  const recordSeamVintage = (seam: SeamService, attempt: SeamAttempt): void => {
+    vintages.set(seam, classifySeamAttempt(attempt))
+  }
   const collaborators: Omit<RunnerOptions, 'seam'> = {
     client: options.client,
     servers: options.servers,
+    seamVintageOf,
+    recordSeamVintage,
     projectMarker: fs === undefined || markers.length === 0
       ? noProjectMarker
       : (filePath, workspaceRoot, signal) => findProjectMarker(fs, markers, filePath, workspaceRoot, signal),
@@ -111,6 +120,15 @@ export function createActionRunner(options: {
 interface RunnerOptions {
   /** The seam resolved for this call (`undefined` when absent or not serving actions). */
   readonly seam: SeamService | undefined
+  /**
+   * The vintage already recorded for one seam instance, or undefined when it has not been probed
+   * yet. A `legacy` answer means the seam can never serve an action, so the call skips the
+   * guaranteed-failing query and goes straight to the plugin's own client. Omitted by direct
+   * `runOp` callers (no caching, every call attempts the seam).
+   */
+  readonly seamVintageOf?: (seam: SeamService) => Exclude<SeamVintage, 'absent'> | undefined
+  /** Record the vintage one real attempt proved, so later calls can skip a legacy seam. */
+  readonly recordSeamVintage?: (seam: SeamService, attempt: SeamAttempt) => void
   readonly client: LspActionClient
   readonly servers: readonly ResolvedServer[]
   /** The target file's governing project marker, or undefined when the table declares none. */
@@ -178,26 +196,33 @@ async function runOp(
   signal?: AbortSignal,
 ): Promise<LspActionResult> {
   if (options.seam !== undefined) {
-    const attempt = await trySeamAction(
-      options.seam,
-      operation,
-      request.filePath,
-      request.workspaceRoot,
-      request.position,
-      request.range,
-      signal,
-      extrasFor(operation, request),
-    )
-    if (attempt.ok) return attempt.result
-    if (attempt.reason === 'unsupported') {
-      throw new LspActionError(
-        `the mounted ctx.lsp provider does not support ${operation}; configure a server that advertises it`,
-        'LSP_ACTION_UNSUPPORTED',
+    // A `legacy` seam (the published four-operation surface) rejects every action operation with a
+    // code-less error; that is a capability fact about the seam, so it is recorded from the first
+    // real attempt and cached per seam instance, after which a legacy seam is skipped entirely
+    // instead of paying a failed round trip on every call. No extra probe query is spent.
+    if (options.seamVintageOf?.(options.seam) !== 'legacy') {
+      const attempt = await trySeamAction(
+        options.seam,
+        operation,
+        request.filePath,
+        request.workspaceRoot,
+        request.position,
+        request.range,
+        signal,
+        extrasFor(operation, request),
       )
+      options.recordSeamVintage?.(options.seam, attempt)
+      if (attempt.ok) return attempt.result
+      if (attempt.reason === 'unsupported') {
+        throw new LspActionError(
+          `the mounted ctx.lsp provider does not support ${operation}; configure a server that advertises it`,
+          'LSP_ACTION_UNSUPPORTED',
+        )
+      }
+      if (attempt.reason === 'error') throw attempt.error
+      // absent / legacy / unavailable: the seam cannot serve this action — fall through to the
+      // plugin's own client, which fails loud itself when no server entry handles the file.
     }
-    if (attempt.reason === 'error') throw attempt.error
-    // absent / legacy / unavailable: the seam cannot serve this action — fall through to the
-    // plugin's own client, which fails loud itself when no server entry handles the file.
   }
   // Workspace symbol search has no document to route by: when no entry matches (or no file path
   // was supplied), fall back to the first configured server.
