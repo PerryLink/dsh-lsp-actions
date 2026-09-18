@@ -4,8 +4,10 @@
 // tarball missing the bundle patch.
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { assertLegacySeam } from './seam-vintage-check.mjs'
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 
@@ -27,4 +29,13 @@ if (typeof index.apply !== 'function' || index.name !== 'lsp-actions') {
   throw new Error('lib/index.js exports an unexpected plugin face')
 }
 
-console.log('artifacts OK: syntax + ESM import + bundle patch present')
+// 3. The self-built client exists only because the published seam carries FOUR operations and no
+//    action vocabulary (see src/seam.ts: a code-less rejection is the `legacy` vintage). The moment
+//    upstream lands the action face, this plugin's own client becomes a duplicate LSP stack and must
+//    be dismantled — so fail the gate loudly instead of shipping it silently.
+const seamTypes = path.join(root, 'node_modules/@deepseek-ai/dsh-lsp/lib/types/types.d.ts')
+if (existsSync(seamTypes)) {
+  assertLegacySeam(await readFile(seamTypes, 'utf8'))
+}
+
+console.log('artifacts OK: syntax + ESM import + bundle patch present + seam vintage still legacy')
