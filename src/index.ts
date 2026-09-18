@@ -172,7 +172,16 @@ export async function apply(ctx: Context, config: ConfigType): Promise<void> {
 
   // Resolve every executable BEFORE registering anything: a bad later command must not publish an
   // earlier tool, matching the official lsp-stdio load contract.
+  //
+  // A02 generation guard: the executable probe (PATH lookups plus `--version` spawns) is the widest
+  // async window in the family, and a mount disposed or reloaded inside it used to run the effect
+  // creation below against a dead fiber (INACTIVE_EFFECT). Capture the fiber's generation before the
+  // await and register nothing when it changed — the fiber is gone, so there is nothing to own.
+  // A context without a fiber (direct `apply()` callers such as tests and programmatic mounting) has
+  // no generation to defend, so the guard stays inert there and the load contract is unchanged.
+  const generation = ctx.fiber?.uid
   const servers = await resolveServers(ctx, resolved.servers as Record<string, ResolvedServerEntry>)
+  if (generation !== undefined && ctx.fiber?.uid !== generation) return
   const sandbox = new FormatSandboxController(ctx)
   const client = new LspActionClient(ctx.subprocess, ctx.fs, resolved.maxDocumentBytes)
   // `ctx.lsp` is an optional capability: typed required by the seam package, absent at runtime in

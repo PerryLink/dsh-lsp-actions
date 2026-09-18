@@ -85,8 +85,26 @@ describe('lsp-actions apply', () => {
     })
   })
 
-  it('registers all eight tools even with empty servers and no seam; calls fail loudly as unavailable', async () => {
-    await apply(fake.ctx as never, baseConfig)
+  it('registers nothing when the mount is disposed inside the executable probe (A02 guard)', async () => {
+    // The probe is the widest async window in the plugin; a disposal landing inside it must not
+    // reach the registration effect (which would run against a dead fiber).
+    const fiber = { uid: 1 }
+    const ctx = { ...fake.ctx, fiber }
+    const pending = apply(ctx as never, { ...baseConfig, servers: {} })
+    fiber.uid = 2
+    await expect(pending).resolves.toBeUndefined()
+    expect(fake.tools).toHaveLength(0)
+  })
+
+  it('still registers all eight tools when the fiber generation is unchanged across the probe', async () => {
+    // Positive control for the guard: an untouched fiber registers exactly as before.
+    const fiber = { uid: 7 }
+    const ctx = { ...fake.ctx, fiber }
+    await apply(ctx as never, { ...baseConfig, servers: {} })
+    expect(fake.tools).toHaveLength(8)
+  })
+
+  it('registers all eight tools even with empty servers and no seam; calls fail loudly as unavailable', async () => {    await apply(fake.ctx as never, baseConfig)
     expect(fake.tools.map(tool => tool.name).sort()).toEqual(ALL_TOOLS)
     const tool = fake.tools.find(candidate => candidate.name === 'lsp_diagnostics')
     if (tool === undefined) throw new Error('lsp_diagnostics was not registered')
