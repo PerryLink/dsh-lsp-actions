@@ -45,6 +45,64 @@ export type SeamAttempt =
   | { readonly ok: false; readonly reason: 'error'; readonly error: unknown }
 
 /**
+ * Which vintage of the `ctx.lsp` seam is mounted:
+ * - `absent` — no seam at all (path two serves every call);
+ * - `legacy` — a seam that predates the action vocabulary: it rejects an action operation with a
+ *   code-less error, so it can NEVER serve an action and the runner must not pay a failed round
+ *   trip per call;
+ * - `unsupported` — a seam that knows the vocabulary but has no provider advertising the
+ *   operation (the runner fails loud for that call);
+ * - `actions` — a seam that speaks the action vocabulary.
+ *
+ * This is the asserted form of the classification `trySeamAction` documents: the bare-error
+ * fallback is a capability fact about the mounted seam, not a per-call accident, so it is probed
+ * once (see `probeSeamVintage`) and cached per seam instance by the runner. An abort is the
+ * caller's own cancellation and is rethrown, never cached as a vintage.
+ */
+export type SeamVintage = 'absent' | 'legacy' | 'unsupported' | 'actions'
+
+/**
+ * Classify one seam attempt into the vintage it proves. `absent` needs no attempt (the seam is
+ * missing); every other vintage is a property of the seam, so the runner records it once per seam
+ * instance instead of re-deriving it from every call.
+ * @param attempt - the classified attempt `trySeamAction` returned.
+ * @returns the vintage the attempt proves (`absent` is never returned here).
+ */
+export function classifySeamAttempt(attempt: SeamAttempt): Exclude<SeamVintage, 'absent'> {
+  if (attempt.ok) return 'actions'
+  if (attempt.reason === 'legacy') return 'legacy'
+  if (attempt.reason === 'unsupported') return 'unsupported'
+  // `unavailable` / `error`: the seam understood the action vocabulary and answered about this
+  // file — only a code-less rejection proves the pre-action surface.
+  return 'actions'
+}
+
+/**
+ * Probe the mounted seam's vintage with one benign action query — for callers that need the
+ * classification before running a real action.
+ *
+ * `documentSymbol` needs only a path, so the probe neither demands a position/range nor costs a
+ * workspace walk; on the published seam (four operations, no action vocabulary) it rejects with a
+ * code-less error and yields `legacy`. The bundled runner does not spend this extra query: it
+ * classifies its first real attempt through {@link classifySeamAttempt} (same mapping, no probe).
+ * @param seam - the mounted `ctx.lsp` service, when present.
+ * @param filePath - a source file to probe with.
+ * @param workspaceRoot - the workspace root the query resolves against.
+ * @param signal - optional cancellation; an abort is rethrown so the caller never caches it.
+ * @returns the classified vintage.
+ */
+export async function probeSeamVintage(
+  seam: SeamService | undefined,
+  filePath: string,
+  workspaceRoot: string,
+  signal?: AbortSignal,
+): Promise<SeamVintage> {
+  if (seam === undefined) return 'absent'
+  const attempt = await trySeamAction(seam, 'documentSymbol', filePath, workspaceRoot, undefined, undefined, signal, {})
+  return classifySeamAttempt(attempt)
+}
+
+/**
  * Run one action through the seam and classify the outcome. Success returns the result; the
  * fallback reasons (`absent`, `legacy`, `unavailable`) let the runner serve the call through the
  * plugin's own client, while `unsupported` and `error` fail loud.
