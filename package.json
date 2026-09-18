@@ -25,6 +25,8 @@
     "README-zh.md"
   ],
   "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:ci": "tsc -p tsconfig.ci.json --noEmit",
     "build": "tsc --noEmitOnError && node scripts/fix-dts.mjs",
     "prepare": "tsc --noEmitOnError && node scripts/fix-dts.mjs",
     "prepublishOnly": "tsc --noEmitOnError && node scripts/fix-dts.mjs",
