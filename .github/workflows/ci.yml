@@ -25,6 +25,11 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The published-line ruler: it existed as a script but no workflow invoked
+      # it, so the second type face was decorative on CI (G-4b). It clears
+      # `paths`, so it needs no harness checkout and is safe on a runner.
+      - name: Typecheck (published line)
+        run: pnpm run typecheck:ci
       - run: pnpm run lint
       - run: pnpm run build
       - run: pnpm run verify:self-contained
