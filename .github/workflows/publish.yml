@@ -20,25 +20,38 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          registry-url: 'https://registry.npmjs.org'
+          # No registry-url on purpose: it writes
+          # //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} into .npmrc, and with
+          # the secret retired that line is an empty bearer token - the registry
+          # answers 404 on PUT instead of letting npm do the OIDC exchange.
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm run build
       - run: pnpm test
       - name: Verify package contents
         run: npm pack --dry-run
-      # Publishes the bumped package.json version. Requires the NPM_TOKEN Actions secret (a
-      # publish-scoped npm access token). Secrets cannot be tested in a step `if`, so the guard
-      # lives in the shell: without the token the step logs a notice and still succeeds, and a
-      # tag push without the secret verifies the suite without failing the release.
+      # Trusted publishing: the OIDC token (id-token: write at the top) replaces the
+      # NPM_TOKEN secret, so this step reads none. The "no token -> notice and
+      # succeed" branch is gone on purpose: with the secret retired it would turn
+      # every release into a silent no-op.
+      - name: Upgrade npm and show what the publish will authenticate with
+        run: |
+          npm install -g npm@^11.5.1
+          echo "npm: $(npm --version)"
+          echo "registry: $(npm config get registry)"
+          if [ -f .npmrc ]; then echo "--- workspace .npmrc ---"; cat .npmrc; else echo "no workspace .npmrc"; fi
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then echo "OIDC request TOKEN: present"; else echo "OIDC request TOKEN: MISSING"; fi
       - name: Publish to npm
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # npm's OIDC exchange never throws: a failure is only visible at verbose
+          # level, otherwise the step just fails with ENEEDAUTH and no reason.
+          NPM_CONFIG_LOGLEVEL: verbose
         run: |
-          if [ -n "$NODE_AUTH_TOKEN" ]; then
-            npm publish --access public --provenance
+          version="$(node -p "require('./package.json').version")"
+          if npm view "dsh-lsp-actions@${version}" version >/dev/null 2>&1; then
+            echo "dsh-lsp-actions@${version} is already published; skipping npm publish"
           else
-            echo "NPM_TOKEN secret is not set on this repository; skipping npm publish"
+            npm publish --access public --provenance
           fi
 
   # npm publish alone left every release without a GitHub Release page (v0.5.0
