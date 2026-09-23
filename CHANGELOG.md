@@ -3,6 +3,17 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.4] - 2026-09-23
+
+### Changed
+
+- The `@deepseek-ai/dsh-*` dev/test pins move from `0.1.5-rc.2` to `0.1.7-alpha.2` (ten packages: `dsh-attachment`, `dsh-fs`, `dsh-llm`, `dsh-lsp`, `dsh-sandbox`, `dsh-sandbox-policy`, `dsh-subprocess`, `dsh-timeout`, `dsh-tools`, `dsh-user-approval`), so the suite executes the host packages this release targets. `pnpm-lock.yaml` re-resolved and carries no `0.1.5-rc.2` reference. No test expectation had to change: the bump turned nothing red.
+- Every declared host range gains the trailing clause `|| >=0.1.7-0 <0.2.0` — `engines.dsh` plus the five `@deepseek-ai/dsh-*` `peerDependencies` values. This is a correctness fix, not a tightening: under semver's prerelease rule a comparator set whose only prerelease comparators sit on earlier version tuples cannot admit a later alpha, so the previous range excluded `0.1.7-alpha.2`, the very host this release targets. The three existing segments are kept in place and order, so every previously supported host line remains supported.
+- `dshWorkshop.compatibility.dshVersions` records `0.1.7-alpha.2` alongside `0.1.2-rc.1` and `0.1.5-rc.2`.
+- `@deepseek-ai/cordis` moves to `^4.0.4` in `peerDependencies` and `devDependencies`, matching what every alpha.2 host package declares. Declaration alignment only: the published 4.0.3 and 4.0.4 tarballs are byte-identical in all 31 code and `.d.ts` files, `package.json` being the only difference.
+- The Harness row of all five READMEs names `dsh-v0.1.7-alpha.2` and quotes the widened range verbatim; the dated verification narration beside it is left as written.
+- The monthly Compat workflow installs and profile-adds the `0.1.7-alpha.2` host (`@deepseek-ai/dsh`, `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-headless`) on both host-line points, so the CLI and the bundle come from the same line. It had kept proving compatibility with a superseded line, silently: the job runs on a schedule, so nothing failed and nothing warned.
+
 ## [0.5.3] - 2026-09-19
 
 ### Added
