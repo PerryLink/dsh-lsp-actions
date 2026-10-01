@@ -5,6 +5,10 @@ All notable changes to dsh-lsp-actions are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Widen the trailing clause of `engines.dsh` and the five `@deepseek-ai/dsh-*` `peerDependencies` unions from `>=0.1.7-0 <0.2.0` to `>=0.1.7-0 <0.3.0-0`, admitting the `0.2.0-rc.*` host line. Since dsh `0.2.0-rc.2`, the plugin loader evaluates every `@deepseek-ai/dsh*` peer with `semver.satisfies(runtimeVersion, requirement, { includePrerelease: true })` and rejects the install when the runtime does not satisfy the range; prerelease `0.2.0-rc.2` sits below the `<0.2.0` bound, so the previous union refused installation on the very line this widening targets. The three earlier segments are kept in place and order, so every previously supported host line remains supported, and the `<0.3.0-0` upper bound keeps the clause closed against a future `0.3.0` line. The ten `@deepseek-ai/dsh-*` dev/test pins stay at `0.1.7-rc.2` and the five READMEs keep naming the `dsh-v0.1.7-rc.2` baseline: a range is what the manifest accepts, not what has been tested. `dshWorkshop.compatibility.dshVersions` appends `0.2.0-rc.2` as the widening's target, not as a re-verification claim.
+
 ## [0.5.6] - 2026-09-25
 
 ### Changed
