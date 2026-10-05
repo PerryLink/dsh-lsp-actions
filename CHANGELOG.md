@@ -3,6 +3,13 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.10] - 2026-10-05
+
+### Changed
+
+- Correct the release date in the previous section, which was stamped with the literal string `undefined` by the release stamper. No content or behaviour change; the version is bumped only because npm will not republish an existing version.
+
+
 ## [Unreleased]
 
 ## [0.5.9] - 2026-10-05
