@@ -5,7 +5,7 @@ All notable changes to dsh-lsp-actions are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.5.9] - undefined
+## [0.5.9] - 2026-10-05
 
 undefined
 
