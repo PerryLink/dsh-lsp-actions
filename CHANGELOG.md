@@ -3,6 +3,12 @@
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.11] - 2026-10-07
+
+### Fixed
+
+- Close the `0.3.0` prerelease leak in the declared host ranges. Both 0.2 clauses ended at a bare `<0.3.0`, and under the loader's `semver.satisfies(runtime, range, { includePrerelease: true })` a bare upper bound admits prereleases of the bound itself: `0.3.0-0` and `0.3.0-rc.1` satisfied the range, so an unreleased 0.3 host line would have been read as compatible. The upper bound is now `<0.3.0-0` in `engines.dsh` and in all five `@deepseek-ai/dsh-*` peers. Nothing else moved: the 0.1.x and 0.2.x clauses are unchanged, in place and in order, and every host line that was admitted before (`0.1.6-alpha.2` through `0.2.1-alpha.1`) is still admitted under both the gate's semantics and semver's defaults. Observed by @heptaspirit in #12; re-verified with semver 7.8.5.
+
 ## [0.5.10] - 2026-10-05
 
 ### Changed
