@@ -34,6 +34,14 @@
 
 *English:* part of a 40+ plugin family for DeepSeek Harness. If it is useful, **a star helps the next person find it** — nothing is gated behind it.
 
+## What is dsh-lsp-actions?
+
+DeepSeek Harness के लिए LSP एक्शन सतह — असली language servers, असली फीडबैक, और एडिटर्स के लिए IDE इंटीग्रेशन बैकएंड।
+
+आपके एजेंट के एडिटर लूप के लिए डायग्नोस्टिक्स, फ़ॉर्मेटिंग, कम्प्लीशन, कोड एक्शन, सिंबल, सिग्नेचर हेल्प, इनले हिंट्स और रिनेम — साथ ही स्थिर एडिटर एक्शन प्रोटोकॉल (`lsp.actions.*`) जो किसी भी एडिटर को इन्हें सीधे उपभोग करने देता है।
+
+![dsh-lsp-actions का टर्मिनल डेमो: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.png)
+
 ## Compatibility
 
 | Surface | Status |
@@ -54,8 +62,12 @@
 ## Quick start
 
 ```sh
+dsh plugin --profile web add github:PerryLink/dsh-lsp-actions
+```
+
+```sh
 # 1. install the bundle into your profile
-dsh plugin --profile web add "github:PerryLink/dsh-lsp-actions#main"
+dsh plugin --profile web add github:PerryLink/dsh-lsp-actions
 
 # or from npm (published releases)
 dsh plugin --profile web add dsh-lsp-actions
@@ -66,7 +78,7 @@ dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 
 ## Install & uninstall
 
-- **git channel** (नवीनतम `main`): `dsh plugin --profile web add "github:PerryLink/dsh-lsp-actions#main"` — `prepare` स्क्रिप्ट बिल्ड करती है (`tsc --noEmitOnError`)।
+- **git channel** (नवीनतम `main`): `dsh plugin --profile web add github:PerryLink/dsh-lsp-actions` — `prepare` स्क्रिप्ट बिल्ड करती है (`tsc --noEmitOnError`)।
 - **npm channel** (प्रकाशित रिलीज़): `dsh plugin --profile web add dsh-lsp-actions`।
 - **tarball channel**: इस repo में `pnpm pack` चलाएँ, फिर `dsh plugin --profile web add ./dsh-lsp-actions-<version>.tgz`।
 - **uninstall**: `dsh plugin --profile web remove dsh-lsp-actions` (या profile patch से पंक्ति हटाएँ)।

@@ -34,6 +34,14 @@
 
 *English:* part of a 40+ plugin family for DeepSeek Harness. If it is useful, **a star helps the next person find it** — nothing is gated behind it.
 
+## What is dsh-lsp-actions?
+
+DeepSeek Harness 的 LSP 动作面 —— 真实的语言服务器、真实的反馈，以及面向编辑器的 IDE 集成后端。
+
+为你的 agent 编辑循环提供诊断、格式化、补全、代码动作、符号、签名提示、内联提示与重命名 —— 外加稳定的编辑器 action 协议（`lsp.actions.*`），让任何编辑器都能直接消费这些能力。
+
+![dsh-lsp-actions 终端演示：dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.png)
+
 ## Compatibility
 
 | Surface | Status |
@@ -54,8 +62,12 @@
 ## Quick start
 
 ```sh
+dsh plugin --profile web add github:PerryLink/dsh-lsp-actions
+```
+
+```sh
 # 1. install the bundle into your profile
-dsh plugin --profile web add "github:PerryLink/dsh-lsp-actions#main"
+dsh plugin --profile web add github:PerryLink/dsh-lsp-actions
 
 # or from npm (published releases)
 dsh plugin --profile web add dsh-lsp-actions
@@ -66,7 +78,7 @@ dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 
 ## Install & uninstall
 
-- **git channel**（最新 `main`）：`dsh plugin --profile web add "github:PerryLink/dsh-lsp-actions#main"` —— `prepare` 脚本负责构建（`tsc --noEmitOnError`）。
+- **git channel**（最新 `main`）：`dsh plugin --profile web add github:PerryLink/dsh-lsp-actions` —— `prepare` 脚本负责构建（`tsc --noEmitOnError`）。
 - **npm channel**（发布版本）：`dsh plugin --profile web add dsh-lsp-actions`。
 - **tarball channel**：在本仓库执行 `pnpm pack`，然后 `dsh plugin --profile web add ./dsh-lsp-actions-<version>.tgz`。
 - **uninstall**：`dsh plugin --profile web remove dsh-lsp-actions`（或从 profile patch 中移除该行）。

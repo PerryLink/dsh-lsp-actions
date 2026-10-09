@@ -34,6 +34,14 @@ Este plugin faz parte da [família de plugins DSH](https://github.com/PerryLink)
 
 *English:* part of a 40+ plugin family for DeepSeek Harness. If it is useful, **a star helps the next person find it** — nothing is gated behind it.
 
+## What is dsh-lsp-actions?
+
+A superfície de ação LSP para o DeepSeek Harness — servidores de linguagem reais, feedback real e o backend de integração IDE para editores.
+
+Diagnósticos, formatação, autocompletar, ações de código, símbolos, ajuda de assinatura, dicas embutidas e renomeação para o loop do editor do seu agente — mais o protocolo estável de ações para editores (`lsp.actions.*`) que permite a qualquer editor consumi-los diretamente.
+
+![Demonstração de terminal do dsh-lsp-actions: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.png)
+
 ## Compatibility
 
 | Surface | Status |
@@ -54,8 +62,12 @@ O `dsh-lsp-actions` é montado como uma única linha de host (`id: lsp-actions`,
 ## Quick start
 
 ```sh
+dsh plugin --profile web add github:PerryLink/dsh-lsp-actions
+```
+
+```sh
 # 1. install the bundle into your profile
-dsh plugin --profile web add "github:PerryLink/dsh-lsp-actions#main"
+dsh plugin --profile web add github:PerryLink/dsh-lsp-actions
 
 # or from npm (published releases)
 dsh plugin --profile web add dsh-lsp-actions
@@ -66,7 +78,7 @@ dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 
 ## Install & uninstall
 
-- **git channel** (`main` mais recente): `dsh plugin --profile web add "github:PerryLink/dsh-lsp-actions#main"` — o script `prepare` compila (`tsc --noEmitOnError`).
+- **git channel** (`main` mais recente): `dsh plugin --profile web add github:PerryLink/dsh-lsp-actions` — o script `prepare` compila (`tsc --noEmitOnError`).
 - **npm channel** (versões publicadas): `dsh plugin --profile web add dsh-lsp-actions`.
 - **tarball channel**: execute `pnpm pack` neste repo e depois `dsh plugin --profile web add ./dsh-lsp-actions-<version>.tgz`.
 - **uninstall**: `dsh plugin --profile web remove dsh-lsp-actions` (ou remova a linha do patch do perfil).

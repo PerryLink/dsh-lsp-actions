@@ -36,6 +36,14 @@
 *English:* part of a 40+ plugin family for DeepSeek Harness. If it is useful, **a star helps the next person find it** — nothing is gated behind it.
 
 
+## What is dsh-lsp-actions?
+
+The LSP action surface for DeepSeek Harness — real language servers, real feedback, and the IDE integration backend for editors.
+
+Diagnostics, formatting, completion, code actions, symbols, signature help, inlay hints, and rename for your agent's editor loop — plus the stable editor action protocol (`lsp.actions.*`) that lets any editor consume them directly.
+
+![Terminal demo of dsh-lsp-actions: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.png)
+
 ## Compatibility
 
 | Surface | Status |
@@ -56,8 +64,12 @@
 ## Quick start
 
 ```sh
+dsh plugin --profile web add github:PerryLink/dsh-lsp-actions
+```
+
+```sh
 # 1. install the bundle into your profile
-dsh plugin --profile web add "github:PerryLink/dsh-lsp-actions#main"
+dsh plugin --profile web add github:PerryLink/dsh-lsp-actions
 
 # or from npm (published releases)
 dsh plugin --profile web add dsh-lsp-actions
@@ -68,7 +80,7 @@ dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 
 ## Install & uninstall
 
-- **git channel** (latest `main`): `dsh plugin --profile web add "github:PerryLink/dsh-lsp-actions#main"` — the `prepare` script builds (`tsc --noEmitOnError && node scripts/fix-dts.mjs`).
+- **git channel** (latest `main`): `dsh plugin --profile web add github:PerryLink/dsh-lsp-actions` — the `prepare` script builds (`tsc --noEmitOnError && node scripts/fix-dts.mjs`).
 - **npm channel** (published releases): `dsh plugin --profile web add dsh-lsp-actions`.
 - **tarball channel**: `pnpm pack` in this repo, then `dsh plugin --profile web add ./dsh-lsp-actions-<version>.tgz`.
 - **uninstall**: `dsh plugin --profile web remove dsh-lsp-actions` (or remove the row from the profile patch).
