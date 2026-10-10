@@ -42,6 +42,10 @@ DeepSeek Harness के लिए LSP एक्शन सतह — असली
 
 ![dsh-lsp-actions का टर्मिनल डेमो: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.png)
 
+![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
+
+*वही रन, एनिमेटेड।*
+
 ## Compatibility
 
 | Surface | Status |

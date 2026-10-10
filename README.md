@@ -44,6 +44,10 @@ Diagnostics, formatting, completion, code actions, symbols, signature help, inla
 
 ![Terminal demo of dsh-lsp-actions: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.png)
 
+![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
+
+*The same run, animated.*
+
 ## Compatibility
 
 | Surface | Status |

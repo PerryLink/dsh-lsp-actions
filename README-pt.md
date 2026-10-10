@@ -42,6 +42,10 @@ Diagnósticos, formatação, autocompletar, ações de código, símbolos, ajuda
 
 ![Demonstração de terminal do dsh-lsp-actions: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.png)
 
+![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
+
+*A mesma execução, animada.*
+
 ## Compatibility
 
 | Surface | Status |

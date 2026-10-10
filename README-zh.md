@@ -42,6 +42,10 @@ DeepSeek Harness 的 LSP 动作面 —— 真实的语言服务器、真实的�
 
 ![dsh-lsp-actions 终端演示：dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.png)
 
+![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
+
+*同一次运行，动图版。*
+
 ## Compatibility
 
 | Surface | Status |
