@@ -106,6 +106,20 @@ describe('LspActionClient against the fixture server', () => {
     }
   })
 
+  it('reuses the last push batch for a second unchanged-text call (push-only)', async () => {
+    const client = makeClient()
+    const { request, server } = await prepare(client, fixtureServer(['--push-diag']))
+    try {
+      const first = await client.diagnostics(server, request)
+      expect(first.diagnostics).toHaveLength(3)
+      const second = await client.diagnostics(server, request)
+      expect(second.diagnostics).toHaveLength(3)
+      expect(second.diagnostics[1]?.message).toBe('fixture warning')
+    } finally {
+      await client.disposeAll()
+    }
+  })
+
   it('returns the latest pushed batch after a partial-then-complete push, not the first', async () => {
     const client = makeClient()
     const { request, server } = await prepare(client, fixtureServer(['--multi-push']))

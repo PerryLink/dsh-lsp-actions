@@ -40,7 +40,7 @@ DeepSeek Harness के लिए LSP एक्शन सतह — असली
 
 आपके एजेंट के एडिटर लूप के लिए डायग्नोस्टिक्स, फ़ॉर्मेटिंग, कम्प्लीशन, कोड एक्शन, सिंबल, सिग्नेचर हेल्प, इनले हिंट्स और रिनेम — साथ ही स्थिर एडिटर एक्शन प्रोटोकॉल (`lsp.actions.*`) जो किसी भी एडिटर को इन्हें सीधे उपभोग करने देता है।
 
-![dsh-lsp-actions का टर्मिनल डेमो: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.png)
+![dsh-lsp-actions का टर्मिनल डेमो: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-hero.png)
 
 ![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
 

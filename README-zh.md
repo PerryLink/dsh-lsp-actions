@@ -40,7 +40,7 @@ DeepSeek Harness 的 LSP 动作面 —— 真实的语言服务器、真实的�
 
 为你的 agent 编辑循环提供诊断、格式化、补全、代码动作、符号、签名提示、内联提示与重命名 —— 外加稳定的编辑器 action 协议（`lsp.actions.*`），让任何编辑器都能直接消费这些能力。
 
-![dsh-lsp-actions 终端演示：dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.png)
+![dsh-lsp-actions 终端演示：dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-hero.png)
 
 ![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
 

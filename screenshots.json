@@ -1,5 +1,14 @@
-{
-  "screenshots": [
-    "docs/assets/dsh-lsp-actions-demo.png"
-  ]
-}
+[
+  {
+    "path": "docs/assets/dsh-lsp-actions-hero.png",
+    "kind": "hero",
+    "alt": "dsh-lsp-actions terminal output",
+    "caption": "Real dsh-lsp-actions test run; 378 tests passed."
+  },
+  {
+    "path": "docs/assets/dsh-lsp-actions-demo.gif",
+    "kind": "demo",
+    "alt": "Animated dsh-lsp-actions terminal session",
+    "caption": "The same run, assembled line by line."
+  }
+]

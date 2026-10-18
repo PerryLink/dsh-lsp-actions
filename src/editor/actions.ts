@@ -48,6 +48,11 @@ export interface EditorRunContext {
   readonly agent: EditorAgent | undefined
 }
 
+/** The fs actor for editor-protocol writes; undefined when the session has no live agent. */
+function writeActor(run: EditorRunContext): { agent: { session: { id: unknown } } } | undefined {
+  return run.agent === undefined ? undefined : { agent: { session: run.agent.session } }
+}
+
 /** The dependencies one action call needs. */
 export interface EditorActionDeps {
   readonly ctx: Context
@@ -193,7 +198,7 @@ async function runQuickfixApply(deps: EditorActionDeps, params: EditorQuickfixPa
       'LSP_ACTION_UNKNOWN',
     )
   }
-  const applied = await applyEditorEdits(deps, request.workspace, selected.edits, policy, run.signal)
+  const applied = await applyEditorEdits(deps, request.workspace, selected.edits, policy, run.signal, run)
   if (applied.filesChanged === 0) {
     return { kind: 'unchanged', filePath }
   }
@@ -217,7 +222,7 @@ async function runFormat(deps: EditorActionDeps, params: EditorFormatParams, run
   const policy = await resolveEditorPolicy(deps, 'lsp.actions format', params, run)
   const request = await prepareEditorRequest(deps, filePath, workspaceRoot, run.signal)
   if (request.source.version !== undefined) {
-    deps.ctx.emit('fs/observed', request.source.target, { kind: 'present', version: request.source.version }, undefined)
+    deps.ctx.emit('fs/observed', request.source.target, { kind: 'present', version: request.source.version }, writeActor(run))
   }
   const range = params.range === undefined ? undefined : parseEditorRange(params.range, 'format')
   const result = await deps.runner.formatDocument({ ...request, range }, run.signal)
@@ -225,14 +230,14 @@ async function runFormat(deps: EditorActionDeps, params: EditorFormatParams, run
     return { kind: 'unchanged', filePath }
   }
   const newText = applyEdits(request.source.text, result.edits)
-  const intent = await deps.ctx.waterfall('fs/write-intent', request.source.target, undefined, () => undefined)
+  const intent = await deps.ctx.waterfall('fs/write-intent', request.source.target, writeActor(run), () => undefined)
   let outcome
   try {
     outcome = await deps.ctx.fs.writeText(request.source.target, newText, intent, run.signal, policy)
   } catch (error) {
     throw mapWriteFailure(deps.sandbox.mapError(error, policy), 'lsp.actions format')
   }
-  deps.ctx.emit('fs/observed', request.source.target, { kind: 'present', version: outcome.version }, undefined)
+  deps.ctx.emit('fs/observed', request.source.target, { kind: 'present', version: outcome.version }, writeActor(run))
   deps.cache.delete(request.source.target.displayPath)
   deps.onEvent({ kind: 'file.changed', filePath })
   return {
@@ -360,6 +365,7 @@ async function applyEditorEdits(
   edits: Readonly<Record<string, readonly LspTextEdit[]>>,
   policy: SandboxExecutionPolicy | undefined,
   signal: AbortSignal,
+  run: EditorRunContext,
 ): Promise<{ filesChanged: number; appliedEdits: number; diffs: Array<{ filePath: string; before: string; after: string }> }> {
   const planned: Array<{ filePath: string; target: HostSource['target']; before: string; after: string; edits: number }> = []
   for (const [uri, fileEdits] of Object.entries(edits)) {
@@ -372,7 +378,7 @@ async function applyEditorEdits(
     }
     const source = await readHostSource(deps.ctx.fs, relative, workspace, deps.config.maxDocumentBytes, signal)
     if (source.version !== undefined) {
-      deps.ctx.emit('fs/observed', source.target, { kind: 'present', version: source.version }, undefined)
+      deps.ctx.emit('fs/observed', source.target, { kind: 'present', version: source.version }, writeActor(run))
     }
     const after = applyEdits(source.text, fileEdits)
     if (after !== source.text) {
@@ -383,10 +389,10 @@ async function applyEditorEdits(
   let written = 0
   const diffs: Array<{ filePath: string; before: string; after: string }> = []
   for (const file of planned) {
-    const intent = await deps.ctx.waterfall('fs/write-intent', file.target, undefined, () => undefined)
+    const intent = await deps.ctx.waterfall('fs/write-intent', file.target, writeActor(run), () => undefined)
     try {
       const outcome = await deps.ctx.fs.writeText(file.target, file.after, intent, signal, policy)
-      deps.ctx.emit('fs/observed', file.target, { kind: 'present', version: outcome.version }, undefined)
+      deps.ctx.emit('fs/observed', file.target, { kind: 'present', version: outcome.version }, writeActor(run))
       deps.cache.delete(file.target.displayPath)
       deps.onEvent({ kind: 'file.changed', filePath: file.filePath })
       appliedEdits += file.edits

@@ -467,7 +467,9 @@ class LspActionInstance {
   private handshakeFailed = false
   private readonly ready: Promise<void>
   /** Latest pushed diagnostic batch per document URI (push-only servers). */
-  private readonly pushed = new Map<string, LspDiagnostic[]>()
+  private readonly pushed = new Map<string, { text: string | undefined; diagnostics: LspDiagnostic[] }>()
+  /** Last batch handed to a caller, reused when the document text is unchanged. */
+  private readonly lastPushed = new Map<string, { text: string | undefined; diagnostics: LspDiagnostic[] }>()
   private readonly pushWaiters = new Map<string, () => void>()
   /** Per-document text (and codec) for the resident open document, for push-path conversion. */
   private readonly openedDocs = new Map<string, { readonly text: string; readonly codec: PositionCodec | undefined }>()
@@ -561,7 +563,7 @@ class LspActionInstance {
           const payload = await this.sendRequest('textDocument/diagnostic', { textDocument: { uri } }, signal)
           return { kind: 'diagnostics', diagnostics: normalizeDiagnostics(payload, this.decodeFor(request.source.text)) } as const
         }
-        const diagnostics = await this.waitForPushedDiagnostics(uri, signal)
+        const diagnostics = await this.waitForPushedDiagnostics(uri, request.source.text, signal)
         return { kind: 'diagnostics', diagnostics } as const
       })
     })
@@ -727,7 +729,7 @@ class LspActionInstance {
       const payload = await this.sendRequest('textDocument/diagnostic', { textDocument: { uri } }, signal)
       return normalizeDiagnostics(payload, this.decodeFor(request.source.text))
     }
-    return await this.waitForPushedDiagnostics(uri, signal)
+    return await this.waitForPushedDiagnostics(uri, request.source.text, signal)
   }
 
   /** The codec for one document, or undefined when the server speaks utf-16. */
@@ -811,6 +813,7 @@ class LspActionInstance {
           throw error
         }
         this.residentDocs.set(key, { version: 1, text: request.source.text })
+        this.lastPushed.delete(key)
       } else if (resident.text !== request.source.text) {
         try {
           await abortable(this.connection.notify('textDocument/didChange', {
@@ -823,6 +826,7 @@ class LspActionInstance {
         }
         resident.version += 1
         resident.text = request.source.text
+        this.lastPushed.delete(key)
       }
       // Remember the open text so push notifications (publishDiagnostics) can be decoded from
       // the server's position encoding; it persists for the instance's lifetime.
@@ -869,7 +873,7 @@ class LspActionInstance {
    * yields the complete one; the settle deadline resolves whatever is latest (empty when nothing
    * arrived).
    */
-  private waitForPushedDiagnostics(uri: string, signal?: AbortSignal): Promise<LspDiagnostic[]> {
+  private waitForPushedDiagnostics(uri: string, text: string, signal?: AbortSignal): Promise<LspDiagnostic[]> {
     const key = normalizeFileUri(uri)
     return new Promise<LspDiagnostic[]>((resolve, reject) => {
       const settle = AbortSignal.timeout(this.spec.diagnosticsSettleMs)
@@ -887,7 +891,16 @@ class LspActionInstance {
           reject(signal.reason)
           return
         }
-        resolve(batch ?? [])
+        if (batch !== undefined) {
+          this.lastPushed.set(key, batch)
+          resolve(batch.diagnostics)
+          return
+        }
+        // Push-only servers (tsls included) do not republish for an unchanged
+        // document, so the second call used to resolve to []. Reuse the last
+        // batch only when the text it was produced from is still the same.
+        const cached = this.lastPushed.get(key)
+        resolve(cached !== undefined && cached.text === text ? cached.diagnostics : [])
       }
       // A push resets the quiet period: keep collecting while the server is still talking.
       const onPush = (): void => {
@@ -923,7 +936,8 @@ class LspActionInstance {
     // compared normalized: servers re-spell file URIs (tsserver pushes lowercase percent-encoded
     // drive letters), so a raw string comparison would miss every batch.
     const key = normalizeFileUri(record.uri)
-    this.pushed.set(key, diagnostics)
+    const text = this.openedDocs.get(key)?.text
+    this.pushed.set(key, { text, diagnostics })
     const waiter = this.pushWaiters.get(key)
     if (waiter !== undefined) waiter()
   }

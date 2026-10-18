@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.5.15] - 2026-10-18
+
+### Changed
+
+- Add a 1280×720 hero and a 960×540, 4-second terminal GIF rendered from the test run; `screenshots.json` is an object array and `capture.json` records the command.
+
+## [0.5.14] - 2026-10-18
+
+### Changed
+
+- Compatibility: `dshVersions` records `0.2.1-rc.2`; the devDependency and peer bands were already on the rc.2 line. `presentationMeta` is total on every tool (no `undefined` projection).
+
+## [0.5.13] - 2026-10-17
+
+### Fixed
+
+- **Editor-protocol writes now carry the live fs actor (issue #11).** `fs/write-intent` and `fs/observed` were passed `undefined`, so an observation policy saw no owner and downgraded the intent to `createIfAbsent`, which refuses existing files. They now receive `{ agent: { session } }` from the editor run context.
+- **Second push-only diagnostics no longer return an empty set (issue #10).** The pushed batch is retained with the document text it was produced from; when the text is unchanged and no new push arrives, the cached batch is reused instead of resolving `[]`. The cache is invalidated on didOpen/didChange.
+- Compatibility: `engines.dsh` -> `>=0.2.1-0 <0.3.0` (the malformed `<0.3.0-0` upper bound is gone); devDependencies to `0.2.1-rc.2`; add `@deepseek-ai/dsh-working-directory`.
+
 All notable changes to dsh-lsp-actions are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
