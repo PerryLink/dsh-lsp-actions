@@ -21,6 +21,11 @@
 
 [English](README.md) · [简体中文](README-zh.md) · [Español](README-es.md) · [Português](README-pt.md) · [हिन्दी](README-hi.md)
 
+```sh
+dsh plugin --profile <name> add dsh-lsp-actions
+```
+
+
 </div>
 
 ---
@@ -28,6 +33,13 @@
 **📖 Base de conhecimento do ecossistema** — dados medidos, não marketing: [guia de desenvolvimento · dados de seleção · critérios de manutenção](https://perrylink.github.io/dsh-plugin-guide/).
 
 <!-- star-cta -->
+## Install & uninstall
+
+- **git channel** (`main` mais recente): `dsh plugin --profile web add github:PerryLink/dsh-lsp-actions` — o script `prepare` compila (`tsc --noEmitOnError`).
+- **npm channel** (versões publicadas): `dsh plugin --profile web add dsh-lsp-actions`.
+- **tarball channel**: execute `pnpm pack` neste repo e depois `dsh plugin --profile web add ./dsh-lsp-actions-<version>.tgz`.
+- **uninstall**: `dsh plugin --profile web remove dsh-lsp-actions` (ou remova a linha do patch do perfil).
+
 ## ⭐ 如果它帮到了你
 
 Este plugin faz parte da [família de plugins DSH](https://github.com/PerryLink) (mais de 40, todos Apache-2.0). Se for útil, **deixe uma estrela**: não desbloqueia nada, mas ajuda a próxima pessoa a encontrá-lo.
@@ -79,13 +91,6 @@ dsh plugin --profile web add dsh-lsp-actions
 # 2. restart and verify the row
 dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 ```
-
-## Install & uninstall
-
-- **git channel** (`main` mais recente): `dsh plugin --profile web add github:PerryLink/dsh-lsp-actions` — o script `prepare` compila (`tsc --noEmitOnError`).
-- **npm channel** (versões publicadas): `dsh plugin --profile web add dsh-lsp-actions`.
-- **tarball channel**: execute `pnpm pack` neste repo e depois `dsh plugin --profile web add ./dsh-lsp-actions-<version>.tgz`.
-- **uninstall**: `dsh plugin --profile web remove dsh-lsp-actions` (ou remova a linha do patch do perfil).
 
 ## Configuration
 

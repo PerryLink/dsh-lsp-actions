@@ -21,6 +21,11 @@
 
 [English](README.md) · [简体中文](README-zh.md) · [Español](README-es.md) · [Português](README-pt.md) · [हिन्दी](README-hi.md)
 
+```sh
+dsh plugin --profile <name> add dsh-lsp-actions
+```
+
+
 </div>
 
 ---
@@ -28,6 +33,13 @@
 **📖 इकोसिस्टम नॉलेज बेस** — मापे गए आँकड़े, मार्केटिंग नहीं: [डेवलपमेंट गाइड · चयन डेटा · रखरखाव मानदंड](https://perrylink.github.io/dsh-plugin-guide/)।
 
 <!-- star-cta -->
+## Install & uninstall
+
+- **git channel** (नवीनतम `main`): `dsh plugin --profile web add github:PerryLink/dsh-lsp-actions` — `prepare` स्क्रिप्ट बिल्ड करती है (`tsc --noEmitOnError`)।
+- **npm channel** (प्रकाशित रिलीज़): `dsh plugin --profile web add dsh-lsp-actions`।
+- **tarball channel**: इस repo में `pnpm pack` चलाएँ, फिर `dsh plugin --profile web add ./dsh-lsp-actions-<version>.tgz`।
+- **uninstall**: `dsh plugin --profile web remove dsh-lsp-actions` (या profile patch से पंक्ति हटाएँ)।
+
 ## ⭐ 如果它帮到了你
 
 यह प्लगइन [DSH प्लगइन परिवार](https://github.com/PerryLink) का हिस्सा है (40+ प्लगइन, सभी Apache-2.0)। अगर यह उपयोगी लगे, तो **एक स्टार दें** — इससे कोई सुविधा अनलॉक नहीं होती, पर अगला व्यक्ति इसे खोज में आसानी से पा लेता है।
@@ -79,13 +91,6 @@ dsh plugin --profile web add dsh-lsp-actions
 # 2. restart and verify the row
 dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 ```
-
-## Install & uninstall
-
-- **git channel** (नवीनतम `main`): `dsh plugin --profile web add github:PerryLink/dsh-lsp-actions` — `prepare` स्क्रिप्ट बिल्ड करती है (`tsc --noEmitOnError`)।
-- **npm channel** (प्रकाशित रिलीज़): `dsh plugin --profile web add dsh-lsp-actions`।
-- **tarball channel**: इस repo में `pnpm pack` चलाएँ, फिर `dsh plugin --profile web add ./dsh-lsp-actions-<version>.tgz`।
-- **uninstall**: `dsh plugin --profile web remove dsh-lsp-actions` (या profile patch से पंक्ति हटाएँ)।
 
 ## Configuration
 
