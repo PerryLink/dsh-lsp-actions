@@ -190,7 +190,7 @@ Every failure carries a stable `code`; models and callers route on the code, nev
 
 [`examples/vscode/`](examples/vscode/) ships a **UI-only** extension (sidebar with the DSH sessions, the diagnostics list, one-click quickfix apply, open-at-range, and format) plus the headless backend composition (`backend/cordis.yml`) it connects to over ACP-style JSON-RPC. The extension implements zero LSP logic — every capability and every byte written belongs to the plugin. Install steps, settings, and the demo-gif recording script are in [`examples/vscode/README.md`](examples/vscode/README.md).
 
-![Editor demo](docs/editor-demo.gif)
+![Editor demo](docs/assets/dsh-lsp-actions-demo.gif)
 
 ## Permissions & data
 

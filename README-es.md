@@ -188,7 +188,7 @@ Cada fallo lleva un `code` estable; los modelos y llamadores enrutan por el cód
 
 [`examples/vscode/`](examples/vscode/) incluye una extensión **solo-UI** (barra lateral con las sesiones DSH, la lista de diagnósticos, aplicar quickfix con un clic, abrir en rango y formatear) más la composición de backend headless (`backend/cordis.yml`) a la que se conecta por JSON-RPC estilo ACP. La extensión implementa cero lógica LSP — cada capacidad y cada byte escrito pertenecen al plugin. Los pasos de instalación, ajustes y el script de grabación del gif de demostración están en [`examples/vscode/README.md`](examples/vscode/README.md).
 
-![Editor demo](docs/editor-demo.gif)
+![Editor demo](docs/assets/dsh-lsp-actions-demo.gif)
 
 ## Permissions & data
 

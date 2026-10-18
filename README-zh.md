@@ -188,7 +188,7 @@ servers:
 
 [`examples/vscode/`](examples/vscode/) 附带**纯 UI** 扩展（侧栏：DSH 会话、诊断列表、quickfix 一键应用、点击定位、格式化）及其经 ACP 风格 JSON-RPC 连接的 headless 后端组合（`backend/cordis.yml`）。扩展不实现任何 LSP 逻辑——所有能力与每一笔写入都属于插件。安装步骤、设置项与动图录制脚本见 [`examples/vscode/README.md`](examples/vscode/README.md)。
 
-![编辑器演示](docs/editor-demo.gif)
+![编辑器演示](docs/assets/dsh-lsp-actions-demo.gif)
 
 ## Permissions & data
 

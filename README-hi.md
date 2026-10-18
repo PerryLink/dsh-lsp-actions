@@ -188,7 +188,7 @@ servers:
 
 [`examples/vscode/`](examples/vscode/) एक **केवल-UI** एक्सटेंशन (DSH सत्रों, डायग्नोस्टिक्स सूची, एक-क्लिक quickfix apply, open-at-range और format वाली साइडबार) और वह headless backend संरचना (`backend/cordis.yml`) देता है जिससे वह ACP-शैली JSON-RPC पर जुड़ता है। एक्सटेंशन शून्य LSP लॉजिक लागू करता है — हर क्षमता और हर लिखा बाइट प्लगइन का है। इंस्टॉल चरण, सेटिंग्स और डेमो-gif रिकॉर्डिंग स्क्रिप्ट [`examples/vscode/README.md`](examples/vscode/README.md) में हैं।
 
-![Editor demo](docs/editor-demo.gif)
+![Editor demo](docs/assets/dsh-lsp-actions-demo.gif)
 
 ## Permissions & data
 
