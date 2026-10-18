@@ -376,7 +376,9 @@ pnpm run prepublishOnly # tsc --noEmitOnError (runs before publish)
 
 </details>
 
-</details>## License
+</details>
+
+## License
 
 [Apache License 2.0](LICENSE) © 2026 dsh-lsp-actions contributors
 
