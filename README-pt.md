@@ -122,6 +122,30 @@ a.ts:3:1  [Hint] hint
 
 *Observado em `plugins/dsh-lsp-actions/tests/render.spec.ts:32-37 (exact toBe); tool-level no-result render at plugins/dsh-lsp-actions/tests/tools.spec.ts:150-156`*
 
+#### Ramo de falha
+
+**Entrada**
+
+~~~text
+{"action":"format","requestId":"f1","params":{"filePath":"a.ts","workspaceRoot":"<session-workspace>"}} under a read-only permission preset
+~~~
+
+**Saída**
+
+~~~text
+{
+  "requestId": "f1",
+  "action": "format",
+  "status": "failed",
+  "error": {
+    "code": "LSP_ACTION_READ_ONLY",
+    "message": "[sandbox: file access denied under read-only mode]\n[sandbox: escalation available — retry this exact operation once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]"
+  }
+}
+~~~
+
+*Observado em `plugins/dsh-lsp-actions/src/tools.ts:213-223; plugins/dsh-lsp-actions/src/editor/actions.ts:320-330; plugins/dsh-lsp-actions/tests/editor-protocol.spec.ts:305-325`*
+
 #### Exemplos breves
 
 - `lsp_format`
