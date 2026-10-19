@@ -52,9 +52,10 @@ La superficie de acción LSP para DeepSeek Harness — servidores de lenguaje re
 
 Diagnósticos, formateo, completado, acciones de código, símbolos, ayuda de firmas, sugerencias insertadas y renombrado para el bucle de editor de tu agente — más el protocolo estable de acciones para editores (`lsp.actions.*`) que permite a cualquier editor consumirlos directamente.
 
-![Demostración de terminal de dsh-lsp-actions: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-hero.png)
+![Diagrama de flujo de dsh-lsp-actions: llamada → plugin → resultado.](docs/assets/dsh-lsp-actions-flow.svg)
 
-![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
+*Resumen del flujo: llamada → plugin → resultado. Los ejemplos siguientes usan la superficie de comandos real.*
+
 
 *La misma ejecución, animada.*
 
@@ -91,6 +92,19 @@ dsh plugin --profile web add dsh-lsp-actions
 # 2. restart and verify the row
 dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 ```
+
+### Ejemplos
+
+Son los puntos de entrada reales; instala y llama a uno.
+
+#### Ejemplo detallado
+
+- `lsp_diagnostics`
+
+#### Ejemplos breves
+
+- `lsp_format`
+- `lsp_completion`
 
 ## Configuration
 
@@ -188,7 +202,6 @@ Cada fallo lleva un `code` estable; los modelos y llamadores enrutan por el cód
 
 [`examples/vscode/`](examples/vscode/) incluye una extensión **solo-UI** (barra lateral con las sesiones DSH, la lista de diagnósticos, aplicar quickfix con un clic, abrir en rango y formatear) más la composición de backend headless (`backend/cordis.yml`) a la que se conecta por JSON-RPC estilo ACP. La extensión implementa cero lógica LSP — cada capacidad y cada byte escrito pertenecen al plugin. Los pasos de instalación, ajustes y el script de grabación del gif de demostración están en [`examples/vscode/README.md`](examples/vscode/README.md).
 
-![Editor demo](docs/assets/dsh-lsp-actions-demo.gif)
 
 ## Permissions & data
 

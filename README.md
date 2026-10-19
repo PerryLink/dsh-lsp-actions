@@ -54,11 +54,11 @@ The LSP action surface for DeepSeek Harness — real language servers, real feed
 
 Diagnostics, formatting, completion, code actions, symbols, signature help, inlay hints, and rename for your agent's editor loop — plus the stable editor action protocol (`lsp.actions.*`) that lets any editor consume them directly.
 
-![Terminal demo of dsh-lsp-actions: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-hero.png)
+![Workflow diagram for dsh-lsp-actions: call → plugin → result.](docs/assets/dsh-lsp-actions-flow.svg)
 
-![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
+*Workflow overview: call → plugin → result. The examples below use the real command surface.*
 
-*The same run, animated.*
+
 
 ## Compatibility
 
@@ -93,6 +93,19 @@ dsh plugin --profile web add dsh-lsp-actions
 # 2. restart and verify the row
 dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 ```
+
+### Examples
+
+These are the plugin's real entry points; install once, then call one.
+
+#### Detailed example
+
+- `lsp_diagnostics`
+
+#### Brief examples
+
+- `lsp_format`
+- `lsp_completion`
 
 ## Configuration
 
@@ -190,7 +203,6 @@ Every failure carries a stable `code`; models and callers route on the code, nev
 
 [`examples/vscode/`](examples/vscode/) ships a **UI-only** extension (sidebar with the DSH sessions, the diagnostics list, one-click quickfix apply, open-at-range, and format) plus the headless backend composition (`backend/cordis.yml`) it connects to over ACP-style JSON-RPC. The extension implements zero LSP logic — every capability and every byte written belongs to the plugin. Install steps, settings, and the demo-gif recording script are in [`examples/vscode/README.md`](examples/vscode/README.md).
 
-![Editor demo](docs/assets/dsh-lsp-actions-demo.gif)
 
 ## Permissions & data
 

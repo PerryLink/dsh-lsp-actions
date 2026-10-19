@@ -52,9 +52,10 @@ DeepSeek Harness 的 LSP 动作面 —— 真实的语言服务器、真实的�
 
 为你的 agent 编辑循环提供诊断、格式化、补全、代码动作、符号、签名提示、内联提示与重命名 —— 外加稳定的编辑器 action 协议（`lsp.actions.*`），让任何编辑器都能直接消费这些能力。
 
-![dsh-lsp-actions 终端演示：dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-hero.png)
+![dsh-lsp-actions 工作流图：调用 → 插件 → 结果。](docs/assets/dsh-lsp-actions-flow.svg)
 
-![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
+*工作流概览：调用 → 插件 → 结果。下面的示例使用实际命令面。*
+
 
 *同一次运行，动图版。*
 
@@ -91,6 +92,19 @@ dsh plugin --profile web add dsh-lsp-actions
 # 2. restart and verify the row
 dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 ```
+
+### 示例
+
+以下为插件真实入口；安装后调用一个即可。
+
+#### 详细示例
+
+- `lsp_diagnostics`
+
+#### 简短示例
+
+- `lsp_format`
+- `lsp_completion`
 
 ## Configuration
 
@@ -188,7 +202,6 @@ servers:
 
 [`examples/vscode/`](examples/vscode/) 附带**纯 UI** 扩展（侧栏：DSH 会话、诊断列表、quickfix 一键应用、点击定位、格式化）及其经 ACP 风格 JSON-RPC 连接的 headless 后端组合（`backend/cordis.yml`）。扩展不实现任何 LSP 逻辑——所有能力与每一笔写入都属于插件。安装步骤、设置项与动图录制脚本见 [`examples/vscode/README.md`](examples/vscode/README.md)。
 
-![编辑器演示](docs/assets/dsh-lsp-actions-demo.gif)
 
 ## Permissions & data
 

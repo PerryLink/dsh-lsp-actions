@@ -52,9 +52,10 @@ DeepSeek Harness के लिए LSP एक्शन सतह — असली
 
 आपके एजेंट के एडिटर लूप के लिए डायग्नोस्टिक्स, फ़ॉर्मेटिंग, कम्प्लीशन, कोड एक्शन, सिंबल, सिग्नेचर हेल्प, इनले हिंट्स और रिनेम — साथ ही स्थिर एडिटर एक्शन प्रोटोकॉल (`lsp.actions.*`) जो किसी भी एडिटर को इन्हें सीधे उपभोग करने देता है।
 
-![dsh-lsp-actions का टर्मिनल डेमो: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-hero.png)
+![dsh-lsp-actions कार्यप्रवाह आरेख: कॉल → प्लगइन → परिणाम।](docs/assets/dsh-lsp-actions-flow.svg)
 
-![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
+*कार्यप्रवाह: कॉल → प्लगइन → परिणाम। नीचे के उदाहरण वास्तविक कमांड सतह का उपयोग करते हैं।*
+
 
 *वही रन, एनिमेटेड।*
 
@@ -91,6 +92,19 @@ dsh plugin --profile web add dsh-lsp-actions
 # 2. restart and verify the row
 dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 ```
+
+### उदाहरण
+
+ये वास्तविक प्रवेश बिंदु हैं; इंस्टॉल के बाद एक चलाएँ।
+
+#### विस्तृत उदाहरण
+
+- `lsp_diagnostics`
+
+#### संक्षिप्त उदाहरण
+
+- `lsp_format`
+- `lsp_completion`
 
 ## Configuration
 
@@ -188,7 +202,6 @@ servers:
 
 [`examples/vscode/`](examples/vscode/) एक **केवल-UI** एक्सटेंशन (DSH सत्रों, डायग्नोस्टिक्स सूची, एक-क्लिक quickfix apply, open-at-range और format वाली साइडबार) और वह headless backend संरचना (`backend/cordis.yml`) देता है जिससे वह ACP-शैली JSON-RPC पर जुड़ता है। एक्सटेंशन शून्य LSP लॉजिक लागू करता है — हर क्षमता और हर लिखा बाइट प्लगइन का है। इंस्टॉल चरण, सेटिंग्स और डेमो-gif रिकॉर्डिंग स्क्रिप्ट [`examples/vscode/README.md`](examples/vscode/README.md) में हैं।
 
-![Editor demo](docs/assets/dsh-lsp-actions-demo.gif)
 
 ## Permissions & data
 

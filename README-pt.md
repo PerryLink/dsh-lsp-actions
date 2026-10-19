@@ -52,9 +52,10 @@ A superfície de ação LSP para o DeepSeek Harness — servidores de linguagem 
 
 Diagnósticos, formatação, autocompletar, ações de código, símbolos, ajuda de assinatura, dicas embutidas e renomeação para o loop do editor do seu agente — mais o protocolo estável de ações para editores (`lsp.actions.*`) que permite a qualquer editor consumi-los diretamente.
 
-![Demonstração de terminal do dsh-lsp-actions: dsh-lsp-actions — install, then map servers per project](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-hero.png)
+![Diagrama de fluxo de dsh-lsp-actions: chamada → plugin → resultado.](docs/assets/dsh-lsp-actions-flow.svg)
 
-![Animated terminal demo of dsh-lsp-actions](https://raw.githubusercontent.com/PerryLink/dsh-lsp-actions/main/docs/assets/dsh-lsp-actions-demo.gif)
+*Visão geral do fluxo: chamada → plugin → resultado. Os exemplos abaixo usam a superfície real de comandos.*
+
 
 *A mesma execução, animada.*
 
@@ -91,6 +92,19 @@ dsh plugin --profile web add dsh-lsp-actions
 # 2. restart and verify the row
 dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 ```
+
+### Exemplos
+
+São os pontos de entrada reais; instale e chame um.
+
+#### Exemplo detalhado
+
+- `lsp_diagnostics`
+
+#### Exemplos breves
+
+- `lsp_format`
+- `lsp_completion`
 
 ## Configuration
 
@@ -188,7 +202,6 @@ Cada falha carrega um `code` estável; modelos e chamadores roteiam pelo código
 
 [`examples/vscode/`](examples/vscode/) inclui uma extensão **somente-UI** (barra lateral com as sessões DSH, a lista de diagnósticos, aplicar quickfix com um clique, abrir no intervalo e formatar) mais a composição de backend headless (`backend/cordis.yml`) à qual se conecta por JSON-RPC estilo ACP. A extensão implementa zero lógica LSP — cada capacidade e cada byte escrito pertencem ao plugin. Os passos de instalação, ajustes e o script de gravação do gif de demonstração estão em [`examples/vscode/README.md`](examples/vscode/README.md).
 
-![Editor demo](docs/assets/dsh-lsp-actions-demo.gif)
 
 ## Permissions & data
 
