@@ -99,7 +99,28 @@ São os pontos de entrada reais; instale e chame um.
 
 #### Exemplo detalhado
 
-- `lsp_diagnostics`
+**Comando**
+
+~~~sh
+lsp_diagnostics
+~~~
+
+**Entrada**
+
+~~~json
+{
+  "file_path": "a.ts"
+}
+~~~
+
+**Saída**
+
+~~~text
+a.ts:1:3  [Error] boom [ts 2304]
+a.ts:3:1  [Hint] hint
+~~~
+
+*Observado em `plugins/dsh-lsp-actions/tests/render.spec.ts:32-37 (exact toBe); tool-level no-result render at plugins/dsh-lsp-actions/tests/tools.spec.ts:150-156`*
 
 #### Exemplos breves
 

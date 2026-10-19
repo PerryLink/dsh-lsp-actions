@@ -99,7 +99,28 @@ dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 
 #### 详细示例
 
-- `lsp_diagnostics`
+**命令**
+
+~~~sh
+lsp_diagnostics
+~~~
+
+**输入**
+
+~~~json
+{
+  "file_path": "a.ts"
+}
+~~~
+
+**输出**
+
+~~~text
+a.ts:1:3  [Error] boom [ts 2304]
+a.ts:3:1  [Hint] hint
+~~~
+
+*来源 `plugins/dsh-lsp-actions/tests/render.spec.ts:32-37 (exact toBe); tool-level no-result render at plugins/dsh-lsp-actions/tests/tools.spec.ts:150-156`*
 
 #### 简短示例
 

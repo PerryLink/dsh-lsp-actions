@@ -100,7 +100,28 @@ These are the plugin's real entry points; install once, then call one.
 
 #### Detailed example
 
-- `lsp_diagnostics`
+**Command**
+
+~~~sh
+lsp_diagnostics
+~~~
+
+**Input**
+
+~~~json
+{
+  "file_path": "a.ts"
+}
+~~~
+
+**Output**
+
+~~~text
+a.ts:1:3  [Error] boom [ts 2304]
+a.ts:3:1  [Hint] hint
+~~~
+
+*Observed from `plugins/dsh-lsp-actions/tests/render.spec.ts:32-37 (exact toBe); tool-level no-result render at plugins/dsh-lsp-actions/tests/tools.spec.ts:150-156`*
 
 #### Brief examples
 

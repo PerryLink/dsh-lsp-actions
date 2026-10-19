@@ -99,7 +99,28 @@ dsh --profile web --dump-config | grep -A3 'id: lsp-actions'
 
 #### विस्तृत उदाहरण
 
-- `lsp_diagnostics`
+**कमांड**
+
+~~~sh
+lsp_diagnostics
+~~~
+
+**इनपुट**
+
+~~~json
+{
+  "file_path": "a.ts"
+}
+~~~
+
+**आउटपुट**
+
+~~~text
+a.ts:1:3  [Error] boom [ts 2304]
+a.ts:3:1  [Hint] hint
+~~~
+
+*स्रोत `plugins/dsh-lsp-actions/tests/render.spec.ts:32-37 (exact toBe); tool-level no-result render at plugins/dsh-lsp-actions/tests/tools.spec.ts:150-156`*
 
 #### संक्षिप्त उदाहरण
 
