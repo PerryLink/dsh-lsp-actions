@@ -133,7 +133,7 @@
     "@deepseek-ai/dsh-sandbox": ">=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0 || >=0.2.0-0 <0.3.0-0 || >=0.2.1-0 <0.3.0-0",
     "@deepseek-ai/dsh-subprocess": ">=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0 || >=0.2.0-0 <0.3.0-0 || >=0.2.1-0 <0.3.0-0",
     "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1 <0.2.0 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-0 <0.2.0 || >=0.1.7-0 <0.2.0 || >=0.2.0-0 <0.3.0-0 || >=0.2.1-0 <0.3.0-0",
-    "@deepseek-ai/schemastery": "^3.18.5-alpha.1"
+    "@deepseek-ai/schemastery": "^3.18.5"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-attachment": "0.2.1-rc.2",
@@ -149,7 +149,7 @@
     "@deepseek-ai/dsh-timeout": "0.2.1-rc.2",
     "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
     "@deepseek-ai/dsh-user-approval": "0.2.1-rc.2",
-    "@deepseek-ai/schemastery": "^3.18.5-alpha.1",
+    "@deepseek-ai/schemastery": "^3.18.5",
     "@types/node": "^26.6.5",
     "@vitest/coverage-v8": "^3.2.7",
     "oxlint": "^1.88.0",
