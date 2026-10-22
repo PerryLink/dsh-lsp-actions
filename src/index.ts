@@ -183,7 +183,7 @@ export async function apply(ctx: Context, config: ConfigType): Promise<void> {
   const servers = await resolveServers(ctx, resolved.servers as Record<string, ResolvedServerEntry>)
   if (generation !== undefined && ctx.fiber?.uid !== generation) return
   const sandbox = new FormatSandboxController(ctx)
-  const client = new LspActionClient(ctx.subprocess, ctx.fs, resolved.maxDocumentBytes)
+  const client = new LspActionClient(ctx.subprocess, ctx.fs, resolved.maxDocumentBytes, message => ctx.logger('lsp-actions').warn(message))
   // `ctx.lsp` is an optional capability: typed required by the seam package, absent at runtime in
   // compositions without a provider. Consume it structurally and lazily, never by import or by an
   // apply-time snapshot — the seam may load after this plugin or be re-added mid-session.

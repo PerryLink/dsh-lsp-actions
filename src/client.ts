@@ -90,6 +90,8 @@ interface RawRenameResult {
  */
 export class LspActionClient {
   private readonly instances = new Map<string, LspActionInstance>()
+  /** Evicted instances whose teardown is still settling or retrying. */
+  private readonly reaps = new Map<LspActionInstance, Promise<void>>()
   private readonly lifetime = new AbortController()
   private disposed = false
 
@@ -98,6 +100,8 @@ export class LspActionClient {
     private readonly fs: FileSystem,
     /** Byte cap for documents the rename flow reads back to decode cross-file positions. */
     private readonly maxDocumentBytes: number = DEFAULT_MAX_DOCUMENT_BYTES,
+    /** Host logger for teardown failures that used to be swallowed. */
+    private readonly warn: (message: string) => void = () => {},
   ) {}
 
   /** Spawn one connection through the subprocess seam (the real provider at runtime). */
@@ -311,15 +315,50 @@ export class LspActionClient {
     try {
       return await body(instance, signal)
     } finally {
-      // A dead instance can never serve again: evict it so the next call spawns fresh.
+      // A dead instance can never serve again: evict it so the next call spawns fresh, but keep
+      // its teardown tracked — a failed dispose must not leave the process tree unreferenced.
       if (instance.dead) {
-        await instance.dispose().catch(() => {})
         if (this.instances.get(key) === instance) this.instances.delete(key)
         this.clearIdleTimer(key)
+        void this.reap(instance)
       } else if (server.entry.idleTimeoutMs > 0) {
         this.armIdleTimer(key, instance, server.entry.idleTimeoutMs)
       }
     }
+  }
+
+  /**
+   * Dispose one evicted instance with bounded retries, keeping it referenced until teardown
+   * settles. A rejected {@link LspActionInstance.startTeardown} used to be swallowed here, which
+   * both hid the failure and left the process tree with no owner; the retry makes it observable
+   * and gives a transient provider-observation failure another chance.
+   * @param instance - the evicted instance to tear down.
+   * @returns the settling teardown promise (never rejects unobserved).
+   */
+  private reap(instance: LspActionInstance): Promise<void> {
+    const existing = this.reaps.get(instance)
+    if (existing !== undefined) return existing
+    const task = (async () => {
+      let lastError: unknown
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await instance.dispose()
+          return
+        } catch (error) {
+          lastError = error
+          if (attempt < 3) await new Promise(resolve => setTimeout(resolve, attempt * 250))
+        }
+      }
+      this.warn(`lsp-actions: teardown failed after 3 attempts: ${messageOf(lastError)}`)
+      throw lastError
+    })().finally(() => {
+      this.reaps.delete(instance)
+    })
+    // The caller may background this; a rejected teardown is already logged and must not surface
+    // as an unhandled rejection.
+    task.catch(() => {})
+    this.reaps.set(instance, task)
+    return task
   }
 
   /** Idle-eviction timers per workspace key; a use resets, a fire disposes and evicts. */
@@ -331,7 +370,7 @@ export class LspActionClient {
       if (this.instances.get(key) !== instance) return
       this.instances.delete(key)
       this.idleTimers.delete(key)
-      void instance.dispose().catch(() => {})
+      void this.reap(instance)
     }, idleTimeoutMs)
     timer.unref?.()
     this.idleTimers.set(key, timer)
@@ -392,7 +431,7 @@ export class LspActionClient {
     return created
   }
 
-  /** Dispose every live instance and block further actions. */
+  /** Dispose every live instance, drain pending reaps, and block further actions. */
   async disposeAll(): Promise<void> {
     this.disposed = true
     this.lifetime.abort(new LspActionError('LSP action client is disposed', 'LSP_ACTION_SERVER_FAILED'))
@@ -400,7 +439,11 @@ export class LspActionClient {
     this.idleTimers.clear()
     const live = [...this.instances.values()]
     this.instances.clear()
-    const results = await Promise.allSettled(live.map(instance => instance.dispose()))
+    const pending = [...this.reaps.values()]
+    const results = await Promise.allSettled([
+      ...live.map(instance => this.reap(instance)),
+      ...pending,
+    ])
     const failures: unknown[] = []
     for (const result of results) {
       if (result.status === 'rejected') failures.push(result.reason)
@@ -455,7 +498,7 @@ export class LspActionClient {
 }
 
 /** One initialized server process: handshake, serialized queue, and bounded teardown. */
-class LspActionInstance {
+export class LspActionInstance {
   private readonly connection: LspConnection
   private capabilities: WireServerCapabilities | undefined
   private positionEncoding: WirePositionEncoding = 'utf-16'
@@ -966,10 +1009,17 @@ class LspActionInstance {
     await this.startTeardown()
   }
 
-  /** Publish disposal once and make every caller await the same quiescence boundary. */
+  /**
+   * Publish disposal once and make every caller await the same quiescence boundary. A rejected
+   * teardown clears the cached promise so a later dispose (the client's reap loop) can retry
+   * instead of returning the same permanent rejection.
+   */
   private startTeardown(): Promise<void> {
     this.disposed = true
-    this.teardownPromise ??= this.tearDown()
+    this.teardownPromise ??= this.tearDown().catch((error: unknown) => {
+      this.teardownPromise = undefined
+      throw error
+    })
     return this.teardownPromise
   }
 

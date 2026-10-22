@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.16] - 2026-10-22
+
+### Fixed
+
+- **Teardown failures are no longer swallowed or permanently cached (issue #13).** `runOnce` called `await instance.dispose().catch(() => {})` and then dropped the map entry and idle timer unconditionally, so a rejected teardown left the process tree with no reference and no timer; the idle-timer path did the same. Evicted instances now go through a tracked reap queue that retries teardown up to three times, keeps the instance referenced until it settles, and reports a final failure through the host logger instead of swallowing it. `LspActionInstance.startTeardown()` also clears a rejected teardown promise, so a retry re-runs teardown instead of returning the same permanent rejection, and `disposeAll()` drains pending reaps and aggregates their failures.
+
+  This is lifecycle/observability hardening. It does not by itself claim the Windows orphan-tree root cause: whether the provider's `terminate()` reaches grandchildren is still being confirmed with the reporter.
+
 ## [0.5.15] - 2026-10-18
 
 ### Changed
