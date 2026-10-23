@@ -92,6 +92,8 @@ export class LspActionClient {
   private readonly instances = new Map<string, LspActionInstance>()
   /** Evicted instances whose teardown is still settling or retrying. */
   private readonly reaps = new Map<LspActionInstance, Promise<void>>()
+  /** Instances whose three reaps failed: the tree may still be alive, so keep the last reference. */
+  private readonly failedReaps = new Set<LspActionInstance>()
   private readonly lifetime = new AbortController()
   private disposed = false
 
@@ -312,6 +314,8 @@ export class LspActionClient {
     body: (instance: LspActionInstance, signal: AbortSignal | undefined) => Promise<T>,
   ): Promise<T> {
     const instance = this.instanceFor(key, workspace, server)
+    // A timer armed by the previous action must not fire under this one.
+    this.clearIdleTimer(key)
     try {
       return await body(instance, signal)
     } finally {
@@ -343,13 +347,15 @@ export class LspActionClient {
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           await instance.dispose()
+          this.failedReaps.delete(instance)
           return
         } catch (error) {
           lastError = error
           if (attempt < 3) await new Promise(resolve => setTimeout(resolve, attempt * 250))
         }
       }
-      this.warn(`lsp-actions: teardown failed after 3 attempts: ${messageOf(lastError)}`)
+      this.failedReaps.add(instance)
+      this.warn(`lsp-actions: teardown failed after 3 attempts (process tree may still be alive): ${messageOf(lastError)}`)
       throw lastError
     })().finally(() => {
       this.reaps.delete(instance)
@@ -440,9 +446,11 @@ export class LspActionClient {
     const live = [...this.instances.values()]
     this.instances.clear()
     const pending = [...this.reaps.values()]
+    const failed = [...this.failedReaps]
     const results = await Promise.allSettled([
       ...live.map(instance => this.reap(instance)),
       ...pending,
+      ...failed.map(instance => this.reap(instance)),
     ])
     const failures: unknown[] = []
     for (const result of results) {
@@ -1033,12 +1041,19 @@ export class LspActionInstance {
       // Graceful shutdown failed or timed out; process-tree cleanup below remains authoritative.
     }
     this.connection.terminate()
-    // The terminate escalation already committed to SIGKILL, so quiescence — not another timer —
-    // is the postcondition disposal owes its callers.
-    await Promise.all([
-      this.connection.closed,
-      this.connection.waitForProcessTreeExit(),
-    ])
+    // Quiescence is the postcondition disposal owes its callers, but the provider can lose its
+    // range observation and never settle either wait. Bound both so a leak is reported as a
+    // failed teardown (and retained by the reap queue) instead of hanging fiber disposal forever.
+    const exitBudget = this.spec.killGraceMs + this.spec.shutdownTimeoutMs
+    try {
+      const [exited] = await Promise.all([
+        this.connection.waitForProcessTreeExit(AbortSignal.timeout(exitBudget)),
+        abortable(this.connection.closed, AbortSignal.timeout(exitBudget)),
+      ])
+      if (!exited) throw new Error('process tree did not exit')
+    } catch (error) {
+      throw new Error(`lsp-actions: process tree did not confirm exit within ${exitBudget}ms: ${messageOf(error)}`)
+    }
   }
 }
 

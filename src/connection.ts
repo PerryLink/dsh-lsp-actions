@@ -89,6 +89,13 @@ export class LspConnection {
       env: spec.env,
     })
     if (this.handle.stdin === undefined || this.handle.stdout === undefined) {
+      // The spawn already happened; terminate before throwing so the provider does not leak a
+      // runner with no instance to own it.
+      try {
+        this.handle.terminate()
+      } catch {
+        // Best-effort: the missing stream is the primary failure.
+      }
       throw new Error('lsp-actions: subprocess implementation dropped a piped protocol stream')
     }
     this.stdin = this.handle.stdin

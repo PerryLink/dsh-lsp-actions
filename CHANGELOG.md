@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.17] - 2026-10-23
+
+### Fixed
+
+- **Teardown can no longer hang forever on an unobservable process tree, and the last reference is no longer dropped after the retries fail (issue #13 follow-up).** `tearDown()` now bounds both `connection.closed` and `waitForProcessTreeExit()` with `killGraceMs + shutdownTimeoutMs`; a timeout becomes a failed teardown that the reap queue retains instead of a permanently pending fiber. Instances whose three reaps fail move to a `failedReaps` set that `disposeAll()` retries, `runOnce()` clears a previous action's idle timer before borrowing the instance (so it cannot fire under a live action), and `LspConnection` terminates an already-spawned handle when the provider drops a piped protocol stream. The failure log now says the process tree may still be alive.
+
+  This is plugin-side defense and observability, not a claim that the Windows orphan root cause is fixed: the provider's job-owner SIGKILL escalation is a separate host fix (see the issue discussion).
+
 ## [0.5.16] - 2026-10-22
 
 ### Fixed
