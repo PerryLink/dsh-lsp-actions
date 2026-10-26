@@ -145,7 +145,7 @@
     "@deepseek-ai/dsh-lsp": "0.2.1-rc.2",
     "@deepseek-ai/dsh-sandbox": "0.2.1-rc.2",
     "@deepseek-ai/dsh-sandbox-policy": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-subprocess": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-subprocess": "0.2.1-rc.3",
     "@deepseek-ai/dsh-timeout": "0.2.1-rc.3",
     "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
     "@deepseek-ai/dsh-user-approval": "0.2.1-rc.2",
