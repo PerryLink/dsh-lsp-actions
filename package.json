@@ -152,7 +152,7 @@
     "@deepseek-ai/schemastery": "^3.18.5",
     "@types/node": "^26.6.5",
     "@vitest/coverage-v8": "^3.2.7",
-    "oxlint": "^1.88.0",
+    "oxlint": "^1.89.0",
     "typescript": "^5.9.0",
     "typescript-language-server": "5.3.0",
     "vitest": "^3.2.0",
