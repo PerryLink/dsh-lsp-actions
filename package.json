@@ -22,7 +22,9 @@
     "README-es.md",
     "README-hi.md",
     "README-pt.md",
-    "README-zh.md"
+    "README-zh.md",
+    "PRIVACY.md",
+    "icon.svg"
   ],
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -61,6 +63,7 @@
   ],
   "author": "PerryLink",
   "license": "Apache-2.0",
+  "icon": "icon.svg",
   "repository": {
     "type": "git",
     "url": "https://github.com/PerryLink/dsh-lsp-actions"

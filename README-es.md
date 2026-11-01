@@ -1,6 +1,8 @@
 <div align="center">
 
 # 🛰️ dsh-lsp-actions
+
+<img src="icon.svg" width="72" height="72" alt="dsh-lsp-actions icon">
 - **Canal 1024 store**: `npm i -g dsh1024` una vez, luego `dsh1024 plugin --profile web add dsh-lsp-actions` (cuenta para el ranking de instalaciones de [deepseek1024.com](https://deepseek1024.com)).
 
 **La superficie de acción LSP para DeepSeek Harness — servidores de lenguaje reales, retroalimentación real y el backend de integración IDE para editores.**
@@ -431,6 +433,8 @@ Este proyecto forma parte de la familia de plugins de DeepSeek Harness de [Perry
 | **[dsh-team-rooms](https://github.com/PerryLink/dsh-team-rooms)** | 🚫 RETIRADO — ver el README del repositorio |
 
 </details>
+
+- [Privacidad](PRIVACY.md)
 
 ## License
 
