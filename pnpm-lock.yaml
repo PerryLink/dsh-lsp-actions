@@ -39,8 +39,8 @@ importers:
         specifier: 0.2.1-rc.3
         version: 0.2.1-rc.3(@deepseek-ai/cordis@4.0.5)(@deepseek-ai/dsh-http-proxy@0.2.1-rc.3(@deepseek-ai/cordis@4.0.5))
       '@deepseek-ai/dsh-timeout':
-        specifier: 0.2.1-rc.3
-        version: 0.2.1-rc.3(@deepseek-ai/cordis@4.0.5)
+        specifier: 0.2.1-rc.4
+        version: 0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)
       '@deepseek-ai/dsh-tools':
         specifier: 0.2.1-rc.2
         version: 0.2.1-rc.2(53871834bb50b7f532ec7289e680bbda)
@@ -239,8 +239,8 @@ packages:
     peerDependencies:
       '@deepseek-ai/cordis': ~4.0.5
 
-  '@deepseek-ai/dsh-timeout@0.2.1-rc.3':
-    resolution: {integrity: sha512-DOuGjmY5dMlXqXqhuXlHNgEVajTLTYuj/EabS5b8IIBC5VN36YDOtyPgaT8aq1+LI7XoReDMUYQRUHCI3SOXqw==}
+  '@deepseek-ai/dsh-timeout@0.2.1-rc.4':
+    resolution: {integrity: sha512-8NQcrgG/3dscm4BVPYRhWl8zQdzR1Okl/awn2rFQwrbaht8FbUU83oYYvt2FhSY51wzJxbAADw2CKgy7w+iK0Q==}
     peerDependencies:
       '@deepseek-ai/cordis': ~4.0.5
 
@@ -1410,7 +1410,7 @@ snapshots:
     dependencies:
       '@deepseek-ai/cordis': 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
 
-  '@deepseek-ai/dsh-timeout@0.2.1-rc.3(@deepseek-ai/cordis@4.0.5)':
+  '@deepseek-ai/dsh-timeout@0.2.1-rc.4(@deepseek-ai/cordis@4.0.5)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.5(@deepseek-ai/cordis-plugin-include@1.0.10)(@deepseek-ai/cordis-plugin-loader@1.0.6)
 
