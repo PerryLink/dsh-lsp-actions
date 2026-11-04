@@ -80,7 +80,13 @@
     "manifestVersion": 1,
     "bundle": {
       "patch": "./cordis.patch.yml"
-    }
+    },
+    "capabilities": [
+      "fs:read",
+      "subprocess",
+      "tools:register"
+    ],
+    "labels": []
   },
   "dshWorkshop": {
     "schema": "omdsh-workshop-package/v1",
