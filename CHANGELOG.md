@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.18] - 2026-11-05
 
 ### Changed
 
@@ -74,7 +74,7 @@ All notable changes to dsh-lsp-actions are documented here. The format follows
 - Correct the release date in the previous section, which was stamped with the literal string `undefined` by the release stamper. No content or behaviour change; the version is bumped only because npm will not republish an existing version.
 
 
-## [Unreleased]
+## [0.5.19] - 2026-11-05
 
 ## [0.5.9] - 2026-10-05
 
