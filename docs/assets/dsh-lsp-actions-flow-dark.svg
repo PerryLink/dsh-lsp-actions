@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-label="dsh-lsp-actions action flow">
+<title>dsh-lsp-actions action flow</title>
+<rect width="1200" height="440" rx="18" fill="#0d1117"/>
+<text x="60" y="62" fill="#f0f6fc" font-family="ui-sans-serif,system-ui,-apple-system,sans-serif" font-size="30" font-weight="700">dsh-lsp-actions</text>
+<text x="60" y="94" fill="#8b949e" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="16">lsp_* ×8 · lsp.actions.* · ctx.lsp · stdio JSON-RPC</text>
+<line x1="60" y1="116" x2="1140" y2="116" stroke="#30363d"/>
+<rect x="60" y="146" width="186" height="92" rx="14" fill="#161b22" stroke="#30363d" stroke-width="2"/>
+<text x="153" y="186" fill="#f0f6fc" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" font-weight="700">lsp_* ×8</text>
+<text x="153" y="212" fill="#8b949e" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12">tools</text>
+<path d="M251 192h28" stroke="#8b949e" stroke-width="3"/>
+<path d="M278 185l10 7-10 7" fill="none" stroke="#8b949e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="286" y="146" width="186" height="92" rx="14" fill="#161b22" stroke="#4B67B4" stroke-width="2"/>
+<text x="379" y="186" fill="#f0f6fc" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" font-weight="700">ActionRunner</text>
+<text x="379" y="212" fill="#8b949e" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12">provider seam</text>
+<path d="M477 192h28" stroke="#8b949e" stroke-width="3"/>
+<path d="M504 185l10 7-10 7" fill="none" stroke="#8b949e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="512" y="146" width="186" height="92" rx="14" fill="#161b22" stroke="#30363d" stroke-width="2"/>
+<text x="605" y="186" fill="#f0f6fc" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" font-weight="700">ctx.lsp / servers</text>
+<text x="605" y="212" fill="#8b949e" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12">seam-first</text>
+<path d="M703 192h28" stroke="#8b949e" stroke-width="3"/>
+<path d="M730 185l10 7-10 7" fill="none" stroke="#8b949e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="738" y="146" width="186" height="92" rx="14" fill="#161b22" stroke="#30363d" stroke-width="2"/>
+<text x="831" y="186" fill="#f0f6fc" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" font-weight="700">stdio JSON-RPC</text>
+<text x="831" y="212" fill="#8b949e" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12">subprocess</text>
+<path d="M929 192h28" stroke="#8b949e" stroke-width="3"/>
+<path d="M956 185l10 7-10 7" fill="none" stroke="#8b949e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="964" y="146" width="186" height="92" rx="14" fill="#161b22" stroke="#3fb950" stroke-width="2"/>
+<text x="1057" y="186" fill="#f0f6fc" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="15" font-weight="700">LSP server</text>
+<text x="1057" y="212" fill="#8b949e" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="12">tsls · gopls · pyright</text>
+<path d="M379 238v48" stroke="#4B67B4" stroke-width="2" stroke-dasharray="5 5"/>
+<rect x="190" y="286" width="820" height="52" rx="12" fill="#161b22" stroke="#4B67B4" stroke-width="2"/>
+<text x="600" y="319" fill="#f0f6fc" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="14">lsp.actions.list · lsp.actions.run · lsp.events</text>
+<text x="60" y="388" fill="#8b949e" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">fs/write-intent · sandbox_permissions + justification · read-only</text>
+<text x="60" y="412" fill="#8b949e" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="13">LSP_ACTION_READ_ONLY · LSP_ACTION_CONFLICT · LSP_ACTION_UNAVAILABLE</text>
+</svg>
