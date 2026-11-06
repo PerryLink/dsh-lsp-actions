@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/dsh-lsp-actions-flow-dark.svg">
-  <img src="docs/assets/dsh-lsp-actions-flow-light.svg" width="100%" alt="dsh-lsp-actions प्रवाह: आठ टूल और एडिटर प्रोटोकॉल एक्शन रनर तक जाते हैं, जो आधिकारिक seam या अंतर्निहित stdio क्लाइंट से होते हुए लैंग्वेज सर्वर तक पहुँचता है">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/dsh-lsp-actions-hero-en-dark.webp">
+  <img src="docs/assets/dsh-lsp-actions-hero-en-light.webp" width="100%" alt="dsh-lsp-actions: आठ टूल और एडिटर प्रोटोकॉल एक ही ActionRunner साझा करते हैं; हर क्रिया वास्तविक भाषा-सर्वर विधि से जुड़ी है, छह केवल-पढ़ने और दो लिखने वाली">
 </picture>
 
 # dsh-lsp-actions
@@ -37,6 +37,11 @@ dsh plugin --profile <name> add dsh-lsp-actions
 ## यह क्या है
 
 `dsh-lsp-actions` उस फ़ीडबैक लूप को असली लैंग्वेज सर्वर से जोड़ता है जो एजेंट को कोड लिखते और सुधारते समय चाहिए: डायग्नोस्टिक्स, फ़ॉर्मेटिंग, कम्प्लीशन, कोड एक्शन, सिंबल, सिग्नेचर हेल्प, इनले हिंट और रीनेम — सब वही सर्वर उत्तर देते हैं जो आपका IDE इस्तेमाल करता है (`typescript-language-server`, gopls, pyright, rust-analyzer…)। आधिकारिक `ctx.lsp` seam केवल नेविगेशन (go-to-definition, references, implementation, hover) कवर करता है; यह प्लगइन एक्शन सतह पूरी करता है और उसे स्थिर एडिटर एक्शन प्रोटोकॉल (`lsp.actions.*`) के रूप में पैक करता है, ताकि VS Code जैसे एडिटर बिना खुद LSP लागू किए इन क्षमताओं का उपभोग कर सकें। यह एक ही host पंक्ति के रूप में माउंट होता है (`id: lsp-actions`, `inject: [tools, fs, subprocess]`), सर्वर प्रोसेस को ज़रूरत पर लेज़ी तरीके से शुरू करता है, और हर लेखन को आधिकारिक `fs/write-intent` waterfall तथा sandbox स्वीकृति से गुज़ारता है।
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/dsh-lsp-actions-flow-v5-dark.svg">
+  <img src="docs/assets/dsh-lsp-actions-flow-v5-light.svg" width="100%" alt="dsh-lsp-actions संरचना: अनुरोध-उत्तर का चक्र; टूल और एडिटर प्रोटोकॉल ActionRunner में मिलते हैं, जो पहले ctx.lsp seam चुनता है और उपलब्ध न होने पर servers रूट व अंतर्निहित stdio क्लाइंट पर लौटता है; उत्तर सामान्यीकृत और सीमित होकर लौटता है, और केवल फ़ॉर्मैटिंग व रीनेम लेखन वाल्व से गुजरते हैं">
+</picture>
 
 ## तीन चरणों में शुरुआत
 
@@ -395,7 +400,7 @@ upstream/       seam विस्तार का upstream प्रस्ता
 verify/         एडिटर बैकएंड स्मोक स्क्रिप्ट और scratch कम्पोज़िशन
 ```
 
-README की छवियाँ [`scripts/gen-readme-assets.py`](scripts/gen-readme-assets.py) से प्रोग्रामेटिक रूप से बनती हैं (Python + Pillow; हल्का और गहरा दोनों SVG हीरो) और बिना जोखिम दोबारा चलाई जा सकती हैं।
+README की छवियाँ [`scripts/gen-readme-assets.py`](scripts/gen-readme-assets.py) से प्रोग्रामेटिक रूप से बनती हैं (Pillow से 1440×576 हीरो WebP चार रूपों में — हल्का/गहरा × zh/en — और हाथ से लिखा 1100×660 का अनुरोध-उत्तर चक्र SVG) और बिना जोखिम दोबारा चलाई जा सकती हैं।
 
 Topics: `dsh`, `dsh-plugin`, `deepseek-harness`, `lsp`, `language-server`, `diagnostics`, `formatting`, `completion`, `code-action`, `symbols`, `signature-help`, `inlay-hints`, `rename`, `refactor`, `ide`, `editor`, `vscode`, `acp`, `json-rpc`
 

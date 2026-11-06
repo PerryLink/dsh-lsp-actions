@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/dsh-lsp-actions-flow-dark.svg">
-  <img src="docs/assets/dsh-lsp-actions-flow-light.svg" width="100%" alt="Fluxo do dsh-lsp-actions: oito ferramentas e o protocolo do editor alimentam o executor de ações, que chega ao seam oficial ou ao cliente stdio embutido e depois a um servidor de linguagem">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/dsh-lsp-actions-hero-en-dark.webp">
+  <img src="docs/assets/dsh-lsp-actions-hero-en-light.webp" width="100%" alt="dsh-lsp-actions: oito ferramentas e o protocolo do editor compartilham um único ActionRunner; cada ação corresponde a um método real do servidor de linguagem, seis somente leitura e duas que gravam">
 </picture>
 
 # dsh-lsp-actions
@@ -37,6 +37,11 @@ dsh plugin --profile <name> add dsh-lsp-actions
 ## O que é
 
 O `dsh-lsp-actions` conecta o ciclo de feedback de que um agente precisa enquanto escreve código a servidores de linguagem reais: diagnósticos, formatação, autocompletar, ações de código, símbolos, ajuda de assinatura, dicas inline e renomeação são respondidos pelo mesmo servidor que o seu IDE usa (`typescript-language-server`, gopls, pyright, rust-analyzer…). O seam oficial `ctx.lsp` cobre apenas a navegação (ir para definição, referências, implementação, hover); este plugin completa a superfície de ações e a empacota como o protocolo estável de ações do editor (`lsp.actions.*`), para que editores como o VS Code consumam essas capacidades sem implementar LSP por conta própria. Ele monta como uma única linha host (`id: lsp-actions`, `inject: [tools, fs, subprocess]`), inicia os processos de servidor sob demanda e faz cada escrita passar pelo waterfall oficial `fs/write-intent` e pela aprovação do sandbox.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/dsh-lsp-actions-flow-v5-dark.svg">
+  <img src="docs/assets/dsh-lsp-actions-flow-v5-light.svg" width="100%" alt="Estrutura do dsh-lsp-actions: ida e volta de requisição e resposta; as ferramentas e o protocolo do editor alimentam o ActionRunner, que prefere o seam ctx.lsp e recorre à rota servers com o cliente stdio embutido; a resposta é normalizada e limitada, e apenas formatação e renomeação passam pela válvula de escrita">
+</picture>
 
 ## Instalação em três passos
 
@@ -395,7 +400,7 @@ upstream/       proposta upstream para a extensão do seam (patch + descrição 
 verify/         scripts de fumaça do backend do editor e composição scratch
 ```
 
-As imagens do README são geradas programaticamente por [`scripts/gen-readme-assets.py`](scripts/gen-readme-assets.py) (Python + Pillow; heróis SVG claro e escuro) e podem ser reexecutadas sem risco.
+As imagens do README são geradas programaticamente por [`scripts/gen-readme-assets.py`](scripts/gen-readme-assets.py) (Pillow gera o hero WebP de 1440×576 em quatro variantes — claro/escuro × zh/en — e um diagrama SVG de ida e volta de 1100×660 escrito à mão) e podem ser reexecutadas sem risco.
 
 Topics: `dsh`, `dsh-plugin`, `deepseek-harness`, `lsp`, `language-server`, `diagnostics`, `formatting`, `completion`, `code-action`, `symbols`, `signature-help`, `inlay-hints`, `rename`, `refactor`, `ide`, `editor`, `vscode`, `acp`, `json-rpc`
 

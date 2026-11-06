@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="660" viewBox="0 0 1100 660" role="img" aria-labelledby="t d">
+<title id="t">dsh-lsp-actions 结构图：请求-回传环</title>
+<desc id="d">八个工具与编辑器协议汇入 ActionRunner；优先走 ctx.lsp seam，缺席/旧版/无 provider 时回落到 servers 路由与内置 stdio 客户端；语言服务器作答后经有界归一化回传，只有格式化与重命名穿过写入单向阀。</desc>
+<defs>
+<linearGradient id="page" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#131a2a"/><stop offset="1" stop-color="#0c1016"/></linearGradient>
+</defs>
+<rect width="1100" height="660" rx="20" fill="url(#page)"/>
+<text x="40" y="46" fill="#f0f3f9" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="27" font-weight="700" text-anchor="start">dsh-lsp-actions</text>
+<text x="40" y="76" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="14.5" font-weight="400" text-anchor="start">八个工具 + 编辑器协议 → ActionRunner → seam 优先 / stdio 兜底 → 语言服务器 → 有界回传；写动作走单向阀</text>
+<rect x="40" y="88" width="1020" height="1" fill="#2a3348"/>
+<text x="64" y="108" fill="#8496f5" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="700" text-anchor="start">① 请求 · 出站</text>
+<text x="64" y="408" fill="#3fb950" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="700" text-anchor="start">② 结果 · 回传</text>
+<path d="M64 477L44 477L44 156L62 156" fill="none" stroke="#3fb950" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M55 149L62 156L55 163" fill="none" stroke="#3fb950" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<g transform="translate(34 300) rotate(-90)">
+<text x="0" y="0" fill="#3fb950" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="middle">回环 · 结果回到调用方</text>
+</g>
+<rect x="64" y="120" width="196" height="124" rx="16" fill="#1b2231" stroke="#2e374b" stroke-width="1.5"/>
+<text x="78" y="146" fill="#f0f3f9" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="15" font-weight="700" text-anchor="start">lsp_* 工具 ×8</text>
+<text x="78" y="164" fill="#737b8d" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">6 只读 · 2 写盘</text>
+<text x="78" y="184" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">diagnostics · format</text>
+<text x="78" y="200" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">completion · code_action</text>
+<text x="78" y="216" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">symbols · signature</text>
+<text x="78" y="232" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">inlay_hints · rename</text>
+<rect x="64" y="252" width="196" height="128" rx="16" fill="#1b2231" stroke="#2e374b" stroke-width="1.5"/>
+<text x="78" y="278" fill="#f0f3f9" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="15" font-weight="700" text-anchor="start">lsp.actions.*</text>
+<text x="78" y="296" fill="#737b8d" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">编辑器 JSON-RPC v1</text>
+<text x="78" y="316" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11.5" font-weight="400" text-anchor="start">list · run · events</text>
+<text x="78" y="332" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11.5" font-weight="400" text-anchor="start">lsp.event 通知流</text>
+<text x="78" y="348" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11.5" font-weight="400" text-anchor="start">editor.enabled 才启动</text>
+<rect x="276" y="120" width="182" height="260" rx="18" fill="#1b2231" stroke="#8496f5" stroke-width="2"/>
+<rect x="292" y="140" width="3" height="40" fill="#8496f5"/>
+<text x="304" y="148" fill="#f0f3f9" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="16" font-weight="700" text-anchor="start">ActionRunner</text>
+<text x="292" y="172" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11.5" font-weight="400" text-anchor="start">provider 接口 · 9 个操作</text>
+<rect x="292" y="186" width="150" height="1" fill="#2a3348"/>
+<circle cx="297" cy="205" r="2.4" fill="#8496f5"/>
+<text x="307" y="209" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11.5" font-weight="400" text-anchor="start">工具只依赖接口</text>
+<circle cx="297" cy="230" r="2.4" fill="#8496f5"/>
+<text x="307" y="234" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11.5" font-weight="400" text-anchor="start">内置 runner 是其一</text>
+<circle cx="297" cy="255" r="2.4" fill="#8496f5"/>
+<text x="307" y="259" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11.5" font-weight="400" text-anchor="start">第三方 provider 可替换</text>
+<circle cx="297" cy="280" r="2.4" fill="#8496f5"/>
+<text x="307" y="284" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11.5" font-weight="400" text-anchor="start">seam 逐调用解析</text>
+<circle cx="297" cy="305" r="2.4" fill="#8496f5"/>
+<text x="307" y="309" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11.5" font-weight="400" text-anchor="start">命中即返回，不重开进程</text>
+<rect x="292" y="330" width="150" height="1" fill="#2a3348"/>
+<text x="292" y="356" fill="#737b8d" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">8 工具 + 4 编辑器动作共用</text>
+<path d="M260 179L276 179" fill="none" stroke="#8496f5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M269 172L276 179L269 186" fill="none" stroke="#8496f5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M260 313L276 313" fill="none" stroke="#8496f5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M269 306L276 313L269 320" fill="none" stroke="#8496f5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="482" y="120" width="262" height="98" rx="16" fill="#1b2231" stroke="#8496f5" stroke-width="2"/>
+<rect x="686" y="131" width="38.0" height="22" rx="11.0" fill="#242d42" stroke="none" stroke-width="1.5"/>
+<text x="695" y="149" fill="#8496f5" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="10" font-weight="700" text-anchor="start">优先</text>
+<text x="498" y="148" fill="#f0f3f9" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="15" font-weight="700" text-anchor="start">ctx.lsp 扩展 seam</text>
+<text x="498" y="170" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="400" text-anchor="start">diagnostics / format / completion</text>
+<text x="498" y="190" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">命中即返回；unsupported → 响亮失败</text>
+<text x="498" y="206" fill="#d29922" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="400" text-anchor="start">LSP_ACTION_UNSUPPORTED · 不回退</text>
+<path d="M458 169L482 169" fill="none" stroke="#8496f5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M475 162L482 169L475 176" fill="none" stroke="#8496f5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="482" y="236" width="262" height="144" rx="16" fill="#1b2231" stroke="#2e374b" stroke-width="1.5" stroke-dasharray="6 5"/>
+<rect x="690" y="245" width="38.0" height="22" rx="11.0" fill="#202839" stroke="none" stroke-width="1.5"/>
+<text x="699" y="263" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="10" font-weight="700" text-anchor="start">兜底</text>
+<text x="498" y="262" fill="#f0f3f9" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="15" font-weight="700" text-anchor="start">内置 stdio 客户端</text>
+<text x="498" y="281" fill="#737b8d" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">seam 缺席 · 旧版 · 该文件无 provider</text>
+<text x="498" y="300" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">① fileGlobs  ② projectMarkers</text>
+<text x="498" y="318" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">③ extensionToLanguage 路由</text>
+<text x="498" y="336" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">spawn · Content-Length JSON-RPC</text>
+<text x="498" y="354" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">常驻 didOpen · JSON-RPC 帧</text>
+<text x="498" y="370" fill="#d29922" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="400" text-anchor="start">路由无命中 → LSP_ACTION_UNAVAILABLE</text>
+<path d="M458 309L482 309" fill="none" stroke="#a8b1c4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 5"/>
+<path d="M475 302L482 309L475 316" fill="none" stroke="#a8b1c4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="786" y="120" width="274" height="260" rx="18" fill="#1b2231" stroke="#8496f5" stroke-width="2"/>
+<text x="804" y="148" fill="#f0f3f9" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="16" font-weight="700" text-anchor="start">语言服务器</text>
+<text x="804" y="170" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11.5" font-weight="400" text-anchor="start">真实进程 · 不是 mock</text>
+<rect x="804" y="184" width="238" height="26" rx="8" fill="#202839" stroke="none" stroke-width="1.5"/>
+<text x="814" y="201" fill="#f0f3f9" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">typescript-language-server</text>
+<rect x="804" y="218" width="238" height="26" rx="8" fill="#202839" stroke="none" stroke-width="1.5"/>
+<text x="814" y="235" fill="#f0f3f9" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">gopls · pyright</text>
+<rect x="804" y="252" width="238" height="26" rx="8" fill="#202839" stroke="none" stroke-width="1.5"/>
+<text x="814" y="269" fill="#f0f3f9" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">rust-analyzer</text>
+<rect x="804" y="286" width="238" height="26" rx="8" fill="#202839" stroke="none" stroke-width="1.5"/>
+<text x="814" y="303" fill="#f0f3f9" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11.5" font-weight="400" text-anchor="start">任何 stdio LSP 服务器</text>
+<rect x="804" y="336" width="238" height="1" fill="#2a3348"/>
+<text x="804" y="356" fill="#737b8d" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">initialize → capabilities</text>
+<text x="804" y="372" fill="#737b8d" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">懒启动 · idleTimeoutMs 0 常驻</text>
+<path d="M744 169L786 169" fill="none" stroke="#8496f5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M779 162L786 169L779 176" fill="none" stroke="#8496f5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M744 309L786 309" fill="none" stroke="#a8b1c4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 5"/>
+<path d="M779 302L786 309L779 316" fill="none" stroke="#a8b1c4" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M923 380L923 414" fill="none" stroke="#3fb950" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M916 407L923 414L930 407" fill="none" stroke="#3fb950" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M800 414L800 398L430 398L430 414" fill="none" stroke="#3fb950" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="5 4"/>
+<path d="M423 407L430 414L437 407" fill="none" stroke="#3fb950" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="615" y="391" fill="#3fb950" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="700" text-anchor="middle">只读结果直通（6 / 8）</text>
+<rect x="786" y="414" width="274" height="126" rx="16" fill="#1b2231" stroke="#3fb950" stroke-width="1.6"/>
+<text x="802" y="438" fill="#f0f3f9" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="15" font-weight="700" text-anchor="start">归一化 + 有界</text>
+<text x="802" y="460" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="400" text-anchor="start">maxDiagnostics 200 · maxSymbols 100</text>
+<text x="802" y="477" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="400" text-anchor="start">maxResultChars 16000</text>
+<text x="802" y="494" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="400" text-anchor="start">maxDocumentBytes 4000000</text>
+<text x="802" y="511" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="400" text-anchor="start">timeoutMs 60000</text>
+<text x="802" y="528" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">编辑器 LRU 缓存 64 文件 · 不落盘</text>
+<path d="M786 462L746 462" fill="none" stroke="#d29922" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M753 455L746 462L753 469" fill="none" stroke="#d29922" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="482" y="414" width="262" height="126" rx="16" fill="#1b2231" stroke="#d29922" stroke-width="1.8"/>
+<rect x="666" y="423" width="64.0" height="22" rx="11.0" fill="#3a2b1c" stroke="none" stroke-width="1.5"/>
+<text x="675" y="441" fill="#d29922" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="10" font-weight="700" text-anchor="start">仅 2 / 8</text>
+<text x="498" y="440" fill="#f0f3f9" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="15" font-weight="700" text-anchor="start">写入单向阀</text>
+<text x="498" y="462" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">① UTF-16 偏移应用服务器编辑</text>
+<text x="498" y="479" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">② 重叠 / 越界 → LSP_ACTION_CONFLICT</text>
+<text x="498" y="496" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">③ fs/write-intent 观测→守卫写→观测</text>
+<text x="498" y="513" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">④ sandbox · read-only 往返前拒绝</text>
+<text x="498" y="530" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">⑤ diff · linesChanged 回传</text>
+<path d="M482 462L446 462" fill="none" stroke="#d29922" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M453 455L446 462L453 469" fill="none" stroke="#d29922" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="64" y="414" width="380" height="126" rx="16" fill="#1b2231" stroke="#2e374b" stroke-width="1.5"/>
+<text x="80" y="438" fill="#f0f3f9" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="15" font-weight="700" text-anchor="start">渲染 · 返回调用方</text>
+<text x="80" y="462" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">诊断文本 / 补全列表 / diff 卡片</text>
+<text x="80" y="480" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">presenter 纯函数：直播与重放同源</text>
+<text x="80" y="498" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">工具结果只存在于会话日志</text>
+<text x="80" y="526" fill="#737b8d" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="10.5" font-weight="400" text-anchor="start">↺ 回到入口，下一轮动作重新解析 seam</text>
+<rect x="40" y="556" width="1020" height="1" fill="#2a3348"/>
+<text x="40" y="578" fill="#a8b1c4" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="12" font-weight="700" text-anchor="start">错误码 · 按 code 路由，绝不解析消息文本</text>
+<text x="1060" y="578" fill="#737b8d" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="end">共 12 个稳定 code</text>
+<rect x="40" y="587" width="163.19999999999993" height="23" rx="11.5" fill="#202839" stroke="none" stroke-width="1.5"/>
+<text x="49" y="606" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="700" text-anchor="start">LSP_ACTION_UNAVAILABLE</text>
+<rect x="212.19999999999993" y="587" width="163.19999999999993" height="23" rx="11.5" fill="#202839" stroke="none" stroke-width="1.5"/>
+<text x="221.19999999999993" y="606" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="700" text-anchor="start">LSP_ACTION_UNSUPPORTED</text>
+<rect x="384.39999999999986" y="587" width="176.39999999999992" height="23" rx="11.5" fill="#202839" stroke="none" stroke-width="1.5"/>
+<text x="393.39999999999986" y="606" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="700" text-anchor="start">LSP_ACTION_SERVER_FAILED</text>
+<rect x="569.7999999999997" y="587" width="143.39999999999995" height="23" rx="11.5" fill="#202839" stroke="none" stroke-width="1.5"/>
+<text x="578.7999999999997" y="606" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="700" text-anchor="start">LSP_ACTION_CONFLICT</text>
+<rect x="722.1999999999997" y="587" width="149.99999999999994" height="23" rx="11.5" fill="#202839" stroke="none" stroke-width="1.5"/>
+<text x="731.1999999999997" y="606" fill="#a8b1c4" font-family="'Cascadia Mono',Consolas,'SFMono-Regular',Menlo,'Microsoft YaHei',monospace" font-size="11" font-weight="700" text-anchor="start">LSP_ACTION_READ_ONLY</text>
+<text x="40" y="636" fill="#737b8d" font-family="'Segoe UI','Microsoft YaHei','PingFang SC','Noto Sans CJK SC',system-ui,sans-serif" font-size="11" font-weight="400" text-anchor="start">默认只读 · 单 host 行（inject: tools / fs / subprocess）· 无网络 · 有界 · servers: {} 不激活任何服务器，调用时响亮失败</text>
+</svg>
