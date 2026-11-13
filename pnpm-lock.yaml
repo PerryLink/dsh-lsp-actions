@@ -57,13 +57,13 @@ importers:
         specifier: ~3.19.0
         version: 3.19.0
       '@types/node':
-        specifier: ^26.6.5
+        specifier: ^26.6.6
         version: 26.6.6
       '@vitest/coverage-v8':
         specifier: ^3.2.7
         version: 3.2.7(vitest@3.2.7(@types/node@26.6.6))
       oxlint:
-        specifier: ^1.89.0
+        specifier: ^1.91.0
         version: 1.91.0
       typescript:
         specifier: ^5.9.0
