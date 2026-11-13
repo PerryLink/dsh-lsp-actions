@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.20] - 2026-11-13
+
+### Changed
+
+- Dependency hygiene: `@types/node` 26.6.5 -> 26.6.6 and `oxlint` 1.89.0 -> 1.91.0, with `pnpm-lock.yaml` re-resolved (dependabot #34).
+- Documentation: the five READMEs follow the family layout (badges, intro, five languages), carry a dedicated hero and the semantic flow diagram, and link the plugin toolchain.
+
+No runtime, API, or behaviour change in this release.
+
 ## [0.5.18] - 2026-11-05
 
 ### Changed
