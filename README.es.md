@@ -11,7 +11,7 @@
 
 **Deja que tu agente escriba y corrija código contra servidores de lenguaje reales: diagnósticos, formato, autocompletado, acciones de código, símbolos, ayuda de firma, sugerencias en línea y renombrado en una sola superficie de acciones.**
 
-La superficie de acciones LSP para DeepSeek Harness: el seam oficial `ctx.lsp` cubre la navegación, este plugin completa el bucle de acciones y el protocolo estable de acciones del editor (`lsp.actions.*`) permite que editores como VS Code lo usen como backend de IDE.
+La superficie de acciones LSP para DeepSeek Harness: el seam oficial `dsh-v0.2.2-rc.4`（2026-11-18）；`ctx.lsp` cubre la navegación, este plugin completa el bucle de acciones y el protocolo estable de acciones del editor (`lsp.actions.*`) permite que editores como VS Code lo usen como backend de IDE.
 
 [Instalar](#instalación-en-tres-pasos) · [Configuración](#configuración) · [FAQ](#faq) · [简体中文](README.md) · [English](README.en.md) · [Español](README.es.md) · [Português](README.pt.md) · [हिन्दी](README.hi.md)
 
