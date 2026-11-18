@@ -357,7 +357,7 @@ Static evidence: `dsh-plugin-doctor` K10–K13 report `pass` for every check on 
 
 | Surface | Status |
 |---|---|
-| Harness | DeepSeek Harness `dsh-v0.2.1-alpha.1` (`engines.dsh`: `>=0.2.1-0 <0.3.0 \|\| >=0.2.2-0 <0.3.0`); the plugin writes no session events itself — the host records the standard tool/call + tool/result events. The released seam still carries only the four legacy operations, so the plugin keeps its own client and records that vintage on the first action call. Verified 2026-09-24 (dual typecheck rulers + full test suite + self-contained/artifacts gates). |
+| Harness | DeepSeek Harness `dsh-v0.2.2-rc.4` (`engines.dsh`: `>=0.2.1-0 <0.3.0 \|\| >=0.2.2-0 <0.3.0`); the plugin writes no session events itself — the host records the standard tool/call + tool/result events. The released seam still carries only the four legacy operations, so the plugin keeps its own client and records that vintage on the first action call. Verified 2026-11-18 (dual typecheck rulers + full test suite + self-contained/artifacts gates). |
 | Node | `^22.19.0 \|\| >=24.9.0` |
 | Platforms | All (pure host; subprocess + filesystem, no network) |
 | Model | Any (tools are model-agnostic; the plugin never calls a model) |

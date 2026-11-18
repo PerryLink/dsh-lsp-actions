@@ -357,7 +357,7 @@ servers:
 
 | 维度 | 状态 |
 |---|---|
-| Harness | DeepSeek Harness `dsh-v0.2.1-alpha.1`（`engines.dsh`：`>=0.2.1-0 <0.3.0 \|\| >=0.2.2-0 <0.3.0`）；插件不自写会话事件——宿主记录标准 tool/call + tool/result 事件。已发布 seam 仍只有四个 legacy 操作，故插件保留自建客户端并在首次动作调用时记录该 vintage。已于 2026-09-24 核验（双 typecheck 尺子 + 全量测试 + self-contained/artifacts 门）。 |
+| Harness | DeepSeek Harness `dsh-v0.2.2-rc.4`（`engines.dsh`：`>=0.2.1-0 <0.3.0 \|\| >=0.2.2-0 <0.3.0`）；插件不自写会话事件——宿主记录标准 tool/call + tool/result 事件。已发布 seam 仍只有四个 legacy 操作，故插件保留自建客户端并在首次动作调用时记录该 vintage。已于 2026-11-18 核验（双 typecheck 尺子 + 全量测试 + self-contained/artifacts 门）。 |
 | Node | `^22.19.0 \|\| >=24.9.0` |
 | 平台 | 全部（纯 host；子进程 + 文件系统，无网络） |
 | 模型 | 任意（工具与模型无关；插件从不调用模型） |
