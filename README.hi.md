@@ -45,6 +45,11 @@ dsh plugin --profile <name> add dsh-lsp-actions
   <img src="docs/assets/dsh-lsp-actions-flow-v5-light.svg" width="100%" alt="dsh-lsp-actions संरचना: अनुरोध-उत्तर का चक्र; टूल और एडिटर प्रोटोकॉल ActionRunner में मिलते हैं, जो पहले ctx.lsp seam चुनता है और उपलब्ध न होने पर servers रूट व अंतर्निहित stdio क्लाइंट पर लौटता है; उत्तर सामान्यीकृत और सीमित होकर लौटता है, और केवल फ़ॉर्मैटिंग व रीनेम लेखन वाल्व से गुजरते हैं">
 </picture>
 
+![dsh-lsp-actions का असली टर्मिनल रन](docs/assets/dsh-lsp-actions-demo.gif)
+
+*इस रिपॉज़िटरी में दर्ज असली रन का एनिमेटेड रीप्ले।*
+
+
 ## तीन चरणों में शुरुआत
 
 1. **इंस्टॉल करें** (तीन में से एक चैनल):

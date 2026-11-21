@@ -45,6 +45,11 @@ dsh plugin --profile <name> add dsh-lsp-actions
   <img src="docs/assets/dsh-lsp-actions-flow-v5-light.svg" width="100%" alt="Estructura de dsh-lsp-actions: ida y vuelta de petición y respuesta; las herramientas y el protocolo del editor alimentan ActionRunner, que prefiere el seam ctx.lsp y recurre a la ruta servers con el cliente stdio integrado; la respuesta se normaliza y se acota, y solo formato y renombrado pasan por la válvula de escritura">
 </picture>
 
+![dsh-lsp-actions: ejecución real de terminal](docs/assets/dsh-lsp-actions-demo.gif)
+
+*Repetición animada de una ejecución real registrada en este repositorio.*
+
+
 ## Instalación en tres pasos
 
 1. **Instalar** (elige un canal):

@@ -38,6 +38,10 @@ dsh plugin --profile <name> add dsh-lsp-actions
 
 ## 它是什么
 
+![dsh-lsp-actions 真实终端运行](docs/assets/dsh-lsp-actions-demo.gif)
+
+*本仓库一次真实运行的动图回放。*
+
 `dsh-lsp-actions` 把 agent 写代码时最需要的那圈反馈接到真实语言服务器上：诊断、格式化、补全、代码动作、符号、签名提示、内联提示与重命名，全部由你 IDE 正在用的那些服务器（`typescript-language-server`、gopls、pyright、rust-analyzer……）应答。官方 `ctx.lsp` seam 只覆盖导航（跳转定义、引用、实现、悬停），本插件补齐动作面——并把它包装成稳定的编辑器 action 协议（`lsp.actions.*`），让 VS Code 等编辑器不必自己实现 LSP 就能消费这些能力。它以单个 host 行挂载（`id: lsp-actions`、`inject: [tools, fs, subprocess]`），服务端进程按需懒启动，所有写操作走官方 `fs/write-intent` 与沙箱审批。
 
 <picture>

@@ -45,6 +45,11 @@ O `dsh-lsp-actions` conecta o ciclo de feedback de que um agente precisa enquant
   <img src="docs/assets/dsh-lsp-actions-flow-v5-light.svg" width="100%" alt="Estrutura do dsh-lsp-actions: ida e volta de requisição e resposta; as ferramentas e o protocolo do editor alimentam o ActionRunner, que prefere o seam ctx.lsp e recorre à rota servers com o cliente stdio embutido; a resposta é normalizada e limitada, e apenas formatação e renomeação passam pela válvula de escrita">
 </picture>
 
+![dsh-lsp-actions: execução real de terminal](docs/assets/dsh-lsp-actions-demo.gif)
+
+*Repetição animada de uma execução real registrada neste repositório.*
+
+
 ## Instalação em três passos
 
 1. **Instalar** (escolha um canal):

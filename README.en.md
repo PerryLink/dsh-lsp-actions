@@ -132,6 +132,10 @@ lsp_symbols / lsp_signature / lsp_inlay_hints / lsp_rename
 
 ### Examples
 
+![dsh-lsp-actions: real terminal run](docs/assets/dsh-lsp-actions-demo.gif)
+
+*Animated replay of a real run recorded in this repository.*
+
 These are the plugin's real entry points; install once, then call one.
 
 **Detailed example** — command `lsp_diagnostics`, input:
