@@ -1,5 +1,3 @@
-> Host compatibility: DeepSeek Harness `dsh-v0.2.2-rc.4` (verified 2026-11-18).
-
 <div align="center">
 
 <picture>
@@ -11,7 +9,9 @@
 
 **अपने एजेंट को असली लैंग्वेज सर्वर पर कोड लिखने और ठीक करने दें — डायग्नोस्टिक्स, फ़ॉर्मेटिंग, कम्प्लीशन, कोड एक्शन, सिंबल, सिग्नेचर हेल्प, इनले हिंट और रीनेम, सब एक ही एक्शन सतह पर।**
 
-DeepSeek Harness के लिए LSP एक्शन सतह: आधिकारिक `dsh-v0.2.2-rc.4`（2026-11-18）；`ctx.lsp` seam नेविगेशन संभालता है, यह प्लगइन एक्शन लूप पूरा करता है, और स्थिर एडिटर एक्शन प्रोटोकॉल (`lsp.actions.*`) की बदौलत VS Code जैसे एडिटर इसे सीधे अपना IDE बैकएंड बना सकते हैं।
+DeepSeek Harness के लिए LSP एक्शन सतह: आधिकारिक, `ctx.lsp` seam नेविगेशन संभालता है, यह प्लगइन एक्शन लूप पूरा करता है, और स्थिर एडिटर एक्शन प्रोटोकॉल (`lsp.actions.*`) की बदौलत VS Code जैसे एडिटर इसे सीधे अपना IDE बैकएंड बना सकते हैं।
+
+अंतिम सत्यापन: DeepSeek Harness `dsh-v0.2.3-alpha.1` (2026-11-22).
 
 [इंस्टॉल](#तीन-चरणों-में-शुरुआत) · [कॉन्फ़िगरेशन](#कॉन्फ़िगरेशन) · [FAQ](#faq) · [简体中文](README.md) · [English](README.en.md) · [Español](README.es.md) · [Português](README.pt.md) · [हिन्दी](README.hi.md)
 
@@ -48,7 +48,6 @@ dsh plugin --profile <name> add dsh-lsp-actions
 ![dsh-lsp-actions का असली टर्मिनल रन](docs/assets/dsh-lsp-actions-demo.gif)
 
 *इस रिपॉज़िटरी में दर्ज असली रन का एनिमेटेड रीप्ले।*
-
 
 ## तीन चरणों में शुरुआत
 

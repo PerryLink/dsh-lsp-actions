@@ -1,5 +1,3 @@
-> Host compatibility: DeepSeek Harness `dsh-v0.2.2-rc.4` (verified 2026-11-18).
-
 <div align="center">
 
 <picture>
@@ -11,7 +9,9 @@
 
 **Let your agent write and fix code against real language servers — diagnostics, formatting, completion, code actions, symbols, signature help, inlay hints, and rename in one action surface.**
 
-The LSP action surface for DeepSeek Harness: the official `dsh-v0.2.2-rc.4`（2026-11-18）；`ctx.lsp` seam covers navigation, this plugin completes the action loop, and the stable editor action protocol (`lsp.actions.*`) lets editors such as VS Code use it as their IDE backend.
+The LSP action surface for DeepSeek Harness: the official, `ctx.lsp` seam covers navigation, this plugin completes the action loop, and the stable editor action protocol (`lsp.actions.*`) lets editors such as VS Code use it as their IDE backend.
+
+Last verified on DeepSeek Harness `dsh-v0.2.3-alpha.1` (2026-11-22).
 
 [Install](#three-step-setup) · [Configuration](#configuration) · [FAQ](#faq) · [简体中文](README.md) · [English](README.en.md) · [Español](README.es.md) · [Português](README.pt.md) · [हिन्दी](README.hi.md)
 

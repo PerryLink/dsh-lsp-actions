@@ -1,5 +1,3 @@
-> Host compatibility: DeepSeek Harness `dsh-v0.2.2-rc.4` (verified 2026-11-18).
-
 <div align="center">
 
 <picture>
@@ -11,7 +9,9 @@
 
 **Deja que tu agente escriba y corrija código contra servidores de lenguaje reales: diagnósticos, formato, autocompletado, acciones de código, símbolos, ayuda de firma, sugerencias en línea y renombrado en una sola superficie de acciones.**
 
-La superficie de acciones LSP para DeepSeek Harness: el seam oficial `dsh-v0.2.2-rc.4`（2026-11-18）；`ctx.lsp` cubre la navegación, este plugin completa el bucle de acciones y el protocolo estable de acciones del editor (`lsp.actions.*`) permite que editores como VS Code lo usen como backend de IDE.
+La superficie de acciones LSP para DeepSeek Harness: el seam oficial, `ctx.lsp` cubre la navegación, este plugin completa el bucle de acciones y el protocolo estable de acciones del editor (`lsp.actions.*`) permite que editores como VS Code lo usen como backend de IDE.
+
+Última verificación: DeepSeek Harness `dsh-v0.2.3-alpha.1` (2026-11-22).
 
 [Instalar](#instalación-en-tres-pasos) · [Configuración](#configuración) · [FAQ](#faq) · [简体中文](README.md) · [English](README.en.md) · [Español](README.es.md) · [Português](README.pt.md) · [हिन्दी](README.hi.md)
 
@@ -48,7 +48,6 @@ dsh plugin --profile <name> add dsh-lsp-actions
 ![dsh-lsp-actions: ejecución real de terminal](docs/assets/dsh-lsp-actions-demo.gif)
 
 *Repetición animada de una ejecución real registrada en este repositorio.*
-
 
 ## Instalación en tres pasos
 
