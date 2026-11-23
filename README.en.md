@@ -7,6 +7,8 @@
 
 # dsh-lsp-actions
 
+Current version `0.5.24`.
+
 **Let your agent write and fix code against real language servers — diagnostics, formatting, completion, code actions, symbols, signature help, inlay hints, and rename in one action surface.**
 
 The LSP action surface for DeepSeek Harness: the official, `ctx.lsp` seam covers navigation, this plugin completes the action loop, and the stable editor action protocol (`lsp.actions.*`) lets editors such as VS Code use it as their IDE backend.

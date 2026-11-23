@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "LSP Actions",
+    "description": "Let your agent write and fix code against real language servers — diagnostics, formatting, completion, code actions, symbols, signature help, inlay hints, and rename in one action surface."
+  }
+}

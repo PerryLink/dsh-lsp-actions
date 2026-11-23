@@ -7,6 +7,8 @@
 
 # dsh-lsp-actions
 
+当前版本 `0.5.24`。
+
 **让 agent 在真实语言服务器上写代码、改代码——诊断、格式化、补全、代码动作、符号、签名、内联提示与重命名一步到位。**
 
 面向 DeepSeek Harness 的 LSP 动作面：官方、`ctx.lsp` seam 负责导航，本插件补齐动作闭环，并附带稳定的编辑器 action 协议（`lsp.actions.*`），让 VS Code 等编辑器直接把它当 IDE 后端。
